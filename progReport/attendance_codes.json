@@ -1,0 +1,6 @@
+{
+  "_comment": "Maps your FACTS attendance codes (the 'code' field from GET /Academics/AttendanceCodes) to the three categories this report counts. Run `python main.py --list-attendance-codes` to print the real codes/names configured in your FACTS instance, then edit the lists below to match. A code that isn't listed anywhere is simply ignored (not counted in any column).",
+  "tardy_codes": ["T"],
+  "absent_codes": ["A"],
+  "cut_codes": ["C"]
+}
