@@ -25,7 +25,7 @@ from facts_progress.tests.fake_client import FakeFactsClient
 
 def make_settings() -> Settings:
     return Settings(
-        subscription_key="fake",
+        api_key="fake",
         api_version="1",
         base_url="https://example.invalid",
         school_id=fixtures.SCHOOL_ID,

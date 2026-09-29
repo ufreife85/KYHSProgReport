@@ -59,7 +59,11 @@ class FactsClient:
         self.session = requests.Session()
         self.session.headers.update(
             {
-                "Ocp-Apim-Subscription-Key": settings.subscription_key,
+                # Header name is fixed by FACTS/Azure APIM as
+                # "Ocp-Apim-Subscription-Key", but the value that
+                # belongs here is your school-scoped API key, not your
+                # developer subscription key -- see Settings.api_key.
+                "Ocp-Apim-Subscription-Key": settings.api_key,
                 "Accept": "application/json",
             }
         )
@@ -89,6 +93,12 @@ class FactsClient:
 
             if not resp.ok:
                 message = _extract_error_message(resp)
+                if resp.status_code in (401, 403):
+                    message += (
+                        " (A 401/403 on every request usually means FACTS_API_KEY in .env is wrong -- "
+                        "double check it's your school-scoped API key from the Developer Portal, not "
+                        "your shorter developer subscription key.)"
+                    )
                 raise FactsApiError(resp.status_code, message, url)
 
             return resp

@@ -28,14 +28,25 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# then edit .env with your real FACTS subscription key, api-version,
+# then edit .env with your real FACTS API key, api-version,
 # school id, and school code
 ```
 
-You'll need, from your FACTS Developer Portal app:
+You'll need:
 
-- **FACTS_SUBSCRIPTION_KEY** -- sent as the `Ocp-Apim-Subscription-Key`
-  header on every request (this API does not use OAuth bearer tokens).
+- **FACTS_API_KEY** -- your school-scoped API key (~108 characters),
+  generated in the FACTS Developer Portal when you authorize/scope a new
+  key to your school. Sent as the `Ocp-Apim-Subscription-Key` header on
+  every request (this API does not use OAuth bearer tokens).
+
+  **This is not the same thing as your developer subscription key**
+  (the shorter, ~32-character key tied to your developer account). The
+  subscription key is only entered inside the portal UI to create and
+  authorize an API key like the one above -- it's never sent to the API
+  itself, and your own application code should never need it. If every
+  request comes back 401/403, this mix-up is the most common cause;
+  `Settings.load()` also rejects an obviously-too-short key up front
+  with a reminder of this.
 - **FACTS_API_VERSION** -- the `api-version` query string value FACTS
   expects. The OpenAPI spec doesn't publish a single default; check your
   developer portal docs or ask FACTS support if you're not sure.

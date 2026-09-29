@@ -55,7 +55,13 @@ class AttendanceCodeMap:
 
 @dataclass
 class Settings:
-    subscription_key: str
+    # The school-scoped FACTS API key (~108 chars), sent as the
+    # Ocp-Apim-Subscription-Key header on every request. NOT your
+    # developer subscription key (the shorter, ~32-char key you enter in
+    # the FACTS Developer Portal UI to create/authorize this API key --
+    # that key is portal-only and is never sent to the API itself). See
+    # the comment in .env.example if that distinction is new to you.
+    api_key: str
     api_version: str
     base_url: str
     school_id: int
@@ -65,7 +71,7 @@ class Settings:
 
     @classmethod
     def load(cls) -> "Settings":
-        subscription_key = os.getenv("FACTS_SUBSCRIPTION_KEY", "").strip()
+        api_key = os.getenv("FACTS_API_KEY", "").strip()
         api_version = os.getenv("FACTS_API_VERSION", "").strip()
         base_url = os.getenv("FACTS_BASE_URL", "https://api.factsmgt.com").strip()
         school_id_raw = os.getenv("FACTS_SCHOOL_ID", "").strip()
@@ -74,7 +80,7 @@ class Settings:
         missing = [
             name
             for name, val in [
-                ("FACTS_SUBSCRIPTION_KEY", subscription_key),
+                ("FACTS_API_KEY", api_key),
                 ("FACTS_API_VERSION", api_version),
                 ("FACTS_SCHOOL_ID", school_id_raw),
                 ("FACTS_SCHOOL_CODE", school_code),
@@ -87,6 +93,15 @@ class Settings:
                 "\nCopy .env.example to .env and fill these in."
             )
 
+        if len(api_key) < 60:
+            raise ConfigError(
+                f"FACTS_API_KEY looks too short ({len(api_key)} characters). "
+                "Make sure you used your school-scoped API key (~108 characters), "
+                "not your shorter developer subscription key -- the subscription "
+                "key only authorizes API keys inside the FACTS Developer Portal "
+                "and is never sent to the API itself."
+            )
+
         try:
             school_id = int(school_id_raw)
         except ValueError:
@@ -95,7 +110,7 @@ class Settings:
         attendance_codes = AttendanceCodeMap.load(PROJECT_ROOT / "attendance_codes.json")
 
         return cls(
-            subscription_key=subscription_key,
+            api_key=api_key,
             api_version=api_version,
             base_url=base_url,
             school_id=school_id,
