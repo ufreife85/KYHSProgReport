@@ -54,8 +54,9 @@ def load_reference_data(client: FactsClient, school_code: str) -> ReferenceData:
 
 
 def fetch_student_classes(client: FactsClient, student_id: int) -> dict[int, dict]:
-    """Returns classId -> {"courseID", "name", "section"} for every class
-    the student is scheduled into (any term)."""
+    """Returns classId -> {"courseID", "name", "section", "yearId"} for
+    every class the student has been scheduled into -- ALL school years,
+    not just the current one. Use classes_in_year() to narrow it down."""
     classes: dict[int, dict] = {}
     for row in client.get_paged(f"/Classes/v2/Students/{student_id}"):
         class_id = row.get("classId")
@@ -65,8 +66,22 @@ def fetch_student_classes(client: FactsClient, student_id: int) -> dict[int, dic
             "courseID": row.get("courseID"),
             "name": row.get("name"),
             "section": row.get("section"),
+            "yearId": row.get("yearId"),
         }
     return classes
+
+
+def classes_in_year(student_classes: dict[int, dict], year_id: int) -> dict[int, dict]:
+    """Keeps only the classes that belong to the given school year.
+
+    Why this exists: FACTS term ids repeat every year (every year has a
+    "term 1"), and a GbkSummary grade row identifies its term ONLY by that
+    bare id -- so a term-id match alone would also pull in grades from the
+    same-numbered term of every previous year. A class belongs to exactly
+    one school year (its yearId), so restricting to the report term's
+    year's classes is what keeps old years' courses out of the report.
+    """
+    return {cid: info for cid, info in student_classes.items() if info.get("yearId") == year_id}
 
 
 def _numeric_grade(row: dict) -> float | None:

@@ -13,6 +13,7 @@ from .facts_client import FactsClient
 from .gradebook import (
     ReferenceData,
     class_course_info,
+    classes_in_year,
     fetch_grades_for_student,
     fetch_student_classes,
     load_reference_data,
@@ -31,16 +32,34 @@ def build_student_report(
     term: Term,
     as_of: dt.date,
 ) -> StudentReport:
-    student_classes = fetch_student_classes(client, student.student_id)
-    grades_by_class = fetch_grades_for_student(client, student.student_id, term.term_id)
+    all_classes = fetch_student_classes(client, student.student_id)
+    # Term ids repeat every school year, so only trust classes from the
+    # report term's own year (see classes_in_year for the full reasoning).
+    student_classes = classes_in_year(all_classes, term.year_id)
+    if all_classes and not student_classes:
+        logger.warning(
+            "Student %s has %d class(es) but none with yearId == %s (the report term's year) -- "
+            "the report will be empty. Run scripts/check_setup.py --student %s to inspect.",
+            student.student_id, len(all_classes), term.year_id, student.student_id,
+        )
+
+    grades_by_class = {
+        cid: grade
+        for cid, grade in fetch_grades_for_student(client, student.student_id, term.term_id).items()
+        if cid in student_classes
+    }
 
     term_start = _safe_date(term.first_day) or as_of
     term_end = min(as_of, _safe_date(term.last_day) or as_of)
     if term_end < term_start:
         term_end = term_start
-    attendance_by_class = tally_attendance_for_student(
-        client, settings.attendance_codes, student.student_id, term_start, term_end
-    )
+    attendance_by_class = {
+        cid: tally
+        for cid, tally in tally_attendance_for_student(
+            client, settings.attendance_codes, student.student_id, term_start, term_end
+        ).items()
+        if cid in student_classes
+    }
 
     # A row belongs in the report if the student has a computed grade
     # for this term in that class, and/or has tallied attendance events

@@ -28,25 +28,30 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# then edit .env with your real FACTS API key, api-version,
-# school id, and school code
+# then edit .env with your real FACTS subscription key, API key,
+# api-version, school id, and school code
 ```
 
 You'll need:
 
-- **FACTS_API_KEY** -- your school-scoped API key (~108 characters),
-  generated in the FACTS Developer Portal when you authorize/scope a new
-  key to your school. Sent as the `Ocp-Apim-Subscription-Key` header on
-  every request (this API does not use OAuth bearer tokens).
+- **FACTS_SUBSCRIPTION_KEY** and **FACTS_API_KEY** -- FACTS requires
+  **both** of these together on every request, sent as two separate
+  headers (confirmed against a live 200 OK response from the FACTS
+  Developer Portal's own request tester):
 
-  **This is not the same thing as your developer subscription key**
-  (the shorter, ~32-character key tied to your developer account). The
-  subscription key is only entered inside the portal UI to create and
-  authorize an API key like the one above -- it's never sent to the API
-  itself, and your own application code should never need it. If every
-  request comes back 401/403, this mix-up is the most common cause;
-  `Settings.load()` also rejects an obviously-too-short key up front
-  with a reminder of this.
+  - `FACTS_SUBSCRIPTION_KEY` (~32 characters, looks like a GUID with no
+    dashes) is your developer subscription key, sent as the
+    `Ocp-Apim-Subscription-Key` header.
+  - `FACTS_API_KEY` (~108 characters) is your school-scoped API key --
+    generated in the portal using the subscription key above -- sent as
+    the `Facts-Api-Key` header.
+
+  An earlier version of this project (and this README) claimed the
+  subscription key was portal-only and never sent to the API. **That was
+  wrong.** Both keys are required together, every request. If every
+  request comes back 401/403, double check both are present, correct,
+  and not swapped with each other -- `Settings.load()` sanity-checks the
+  length of each and will flag an obvious swap.
 - **FACTS_API_VERSION** -- the `api-version` query string value FACTS
   expects. The OpenAPI spec doesn't publish a single default; check your
   developer portal docs or ask FACTS support if you're not sure.
@@ -57,17 +62,21 @@ You'll need:
 ### Attendance codes
 
 `attendance_codes.json` maps your FACTS attendance codes to the three
-categories this report counts. It ships with placeholder codes
-(`T` / `A` / `C`). Once your `.env` is filled in, run:
+categories this report counts (`tardy_codes`, `absent_codes`,
+`cut_codes`), plus an `ignored_codes` list for real FACTS codes that are
+deliberately NOT counted anywhere. As currently set up: tardies = `T`;
+absences = `A`, `A-ill`, `AE`, `AEP`, `AES`, `AT`, `ATST`, `S`; cuts =
+`C`; ignored = `D`, `L`, `LC`, `TE`. To see every code your FACTS
+instance has (with its name and absent/tardy/excused flags), run:
 
 ```bash
 python main.py --list-attendance-codes
 ```
 
-This prints every attendance code configured in your FACTS instance
-(with its name and its absent/tardy/excused flags) so you can confirm
-or edit the lists in `attendance_codes.json` to match exactly. A code
-that isn't listed in any of the three arrays is simply not counted.
+A code in none of the four lists is simply not counted -- and
+`scripts/check_setup.py` flags it, so a newly added FACTS code can't be
+silently forgotten. Listing a code under `ignored_codes` is how you
+tell that script "skipped on purpose".
 
 ### Confirming your term setup
 
@@ -76,10 +85,54 @@ python main.py --list-terms
 ```
 
 Prints every term FACTS has for your school. Useful for sanity-checking
-that `--all` without `--term-id` will pick the marking period you
-expect (it picks the *shortest* term whose date range contains today --
-normally the actual progress-period, not the enclosing semester/year --
-see `facts_progress/terms.py`).
+that `--all` without `--term-id` will pick the period you expect (it
+picks the *shortest* term whose date range contains today -- see
+`facts_progress/terms.py`).
+
+**Term ids repeat every school year** -- every year has a "term 1" --
+so a term is identified by its year *and* its id together (this year
+is year 271, whose "Semester 1" is term 1). That's why `--term-id`
+must always be paired with `--year-id`, and why a student's report only
+includes classes belonging to the report term's own school year;
+otherwise last year's term 1 grades would leak into this year's report.
+
+## Before your first real run
+
+`scripts/check_setup.py` is a read-only pre-flight check against your
+**real** `.env` credentials -- it never writes a PDF or edits
+`attendance_codes.json`, it only reads and reports. Run it once after
+filling in `.env` and before generating any real batch, so problems
+surface all at once instead of one PDF at a time:
+
+```bash
+# Auth, attendance-code coverage, and term auto-detection
+python scripts/check_setup.py
+
+# Also verify the Sieve filters actually narrow correctly, using one
+# real, currently-active student id
+python scripts/check_setup.py --student 10321
+```
+
+It checks four things in one pass:
+
+1. **Auth / connectivity** -- one cheap request to confirm
+   `FACTS_SUBSCRIPTION_KEY` and `FACTS_API_KEY` actually work together,
+   before anything else runs.
+2. **Attendance codes** -- diffs the codes your FACTS instance actually has
+   (`/Academics/AttendanceCodes`) against `attendance_codes.json`, and
+   flags anything on either side that doesn't have a match, so a code
+   isn't silently going uncounted.
+3. **Term auto-detection** -- shows exactly which term "today" resolves
+   to (and every other term, for comparison), so you can confirm it's
+   really the progress period and not the enclosing semester/year
+   before trusting `--all` without `--term-id`.
+4. **Sieve filter verification** (needs `--student`) -- runs the
+   gradebook and attendance pulls for one real student and prints raw
+   API row counts next to how many rows matched after the client-side
+   id/date re-check (see "A note on Sieve filter syntax" below).
+
+Exits `0` if everything checked out clean, `1` if something needs
+attention (with specifics printed above the summary).
 
 ## Usage
 
@@ -97,7 +150,8 @@ python main.py --all
 python main.py --student 10321 --student 10455
 
 # Pin to an explicit term instead of auto-detecting today's term
-python main.py --all --term-id 42
+# (term ids repeat every year, so --year-id is required with --term-id)
+python main.py --all --term-id 1 --year-id 271
 
 # Tally attendance through a specific date instead of today
 python main.py --all --as-of-date 2026-11-01
@@ -141,6 +195,12 @@ term's grade is used, etc.) and writes sample PDFs to
 run after cloning, and good to re-run if you change any of the
 aggregation logic.
 
+This is the offline counterpart to `scripts/check_setup.py` above --
+`smoke_test.py` proves the *logic* is correct against known fixture
+data with zero network calls; `check_setup.py` proves your *real*
+credentials and FACTS instance actually behave the way that logic
+assumes.
+
 ## A note on Sieve filter syntax
 
 Every FACTS list endpoint says it supports "Sieve filtering" but the
@@ -175,7 +235,8 @@ facts_progress/
     fixtures.py                 Canned sample API responses
     fake_client.py               Serves fixtures in place of real HTTP calls
 scripts/
-  smoke_test.py                 Offline end-to-end check (see above)
+  smoke_test.py                 Offline end-to-end check against fixture data
+  check_setup.py                 Read-only pre-flight check against your real .env/API
 ```
 
 ## Extending

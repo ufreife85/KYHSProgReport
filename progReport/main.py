@@ -51,7 +51,8 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="Only this student (FACTS student id). Repeat for multiple students.",
     )
 
-    parser.add_argument("--term-id", type=int, help="Explicit FACTS term id instead of auto-detecting today's term.")
+    parser.add_argument("--term-id", type=int, help="Explicit FACTS term id instead of auto-detecting today's term. Term ids repeat every school year, so this needs --year-id too.")
+    parser.add_argument("--year-id", type=int, help="School year id the --term-id belongs to (see --list-terms; e.g. 271 for 2026-27).")
     parser.add_argument(
         "--as-of-date", type=str,
         help="Date (YYYY-MM-DD) attendance is tallied through. Defaults to today. Grades always reflect FACTS's current data for the term.",
@@ -124,8 +125,11 @@ def main(argv=None) -> int:
 
 
 def _resolve_term(client: FactsClient, settings: Settings, args: argparse.Namespace):
+    if args.year_id and not args.term_id:
+        logger.error("--year-id only makes sense together with --term-id.")
+        raise SystemExit(2)
     if args.term_id:
-        return get_term_by_id(client, settings.school_id, args.term_id)
+        return get_term_by_id(client, settings.school_id, args.term_id, args.year_id)
     return get_current_term(client, settings.school_id)
 
 

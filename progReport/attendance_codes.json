@@ -1,6 +1,7 @@
 {
-  "_comment": "Maps your FACTS attendance codes (the 'code' field from GET /Academics/AttendanceCodes) to the three categories this report counts. Run `python main.py --list-attendance-codes` to print the real codes/names configured in your FACTS instance, then edit the lists below to match. A code that isn't listed anywhere is simply ignored (not counted in any column).",
+  "_comment": "Maps your FACTS attendance codes (the 'code' field from GET /Academics/AttendanceCodes) to the categories this report counts. absent_codes / tardy_codes / cut_codes are counted in the matching column. ignored_codes are real FACTS codes that are deliberately NOT counted anywhere -- listing them here is what tells scripts/check_setup.py they were skipped on purpose rather than forgotten. Any code in FACTS that appears in none of the four lists is flagged by check_setup.py.",
   "tardy_codes": ["T"],
-  "absent_codes": ["A"],
-  "cut_codes": ["C"]
+  "absent_codes": ["A", "A-ill", "AE", "AEP", "AES", "AT", "ATST", "S"],
+  "cut_codes": ["C"],
+  "ignored_codes": ["D", "L", "LC", "TE"]
 }

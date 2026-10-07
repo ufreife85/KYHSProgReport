@@ -26,6 +26,10 @@ class AttendanceCodeMap:
     tardy_codes: set[str]
     absent_codes: set[str]
     cut_codes: set[str]
+    # Real FACTS codes that are deliberately not counted anywhere. Only used
+    # by scripts/check_setup.py so it can tell "skipped on purpose" apart
+    # from "forgotten"; categorize() treats them like any unmapped code.
+    ignored_codes: set[str] = field(default_factory=set)
 
     @classmethod
     def load(cls, path: Path) -> "AttendanceCodeMap":
@@ -39,6 +43,7 @@ class AttendanceCodeMap:
             tardy_codes={c.upper() for c in data.get("tardy_codes", [])},
             absent_codes={c.upper() for c in data.get("absent_codes", [])},
             cut_codes={c.upper() for c in data.get("cut_codes", [])},
+            ignored_codes={c.upper() for c in data.get("ignored_codes", [])},
         )
 
     def categorize(self, code: str) -> str | None:
@@ -55,12 +60,20 @@ class AttendanceCodeMap:
 
 @dataclass
 class Settings:
-    # The school-scoped FACTS API key (~108 chars), sent as the
-    # Ocp-Apim-Subscription-Key header on every request. NOT your
-    # developer subscription key (the shorter, ~32-char key you enter in
-    # the FACTS Developer Portal UI to create/authorize this API key --
-    # that key is portal-only and is never sent to the API itself). See
-    # the comment in .env.example if that distinction is new to you.
+    # FACTS actually requires BOTH of these, sent as two separate headers
+    # on every request (confirmed against a live 200 OK response from the
+    # FACTS Developer Portal's own request tester -- see facts_client.py):
+    #
+    #   Ocp-Apim-Subscription-Key: <subscription_key>   (the short ~32-char
+    #       key tied to your developer account -- the one you enter in the
+    #       portal UI when authorizing/scoping an API key)
+    #   Facts-Api-Key:              <api_key>            (the long ~108-char
+    #       school-scoped key that subscription key was used to generate)
+    #
+    # Earlier versions of this project claimed the subscription key was
+    # portal-only and never sent to the API -- that was wrong. Both keys
+    # are required together.
+    subscription_key: str
     api_key: str
     api_version: str
     base_url: str
@@ -71,6 +84,7 @@ class Settings:
 
     @classmethod
     def load(cls) -> "Settings":
+        subscription_key = os.getenv("FACTS_SUBSCRIPTION_KEY", "").strip()
         api_key = os.getenv("FACTS_API_KEY", "").strip()
         api_version = os.getenv("FACTS_API_VERSION", "").strip()
         base_url = os.getenv("FACTS_BASE_URL", "https://api.factsmgt.com").strip()
@@ -80,6 +94,7 @@ class Settings:
         missing = [
             name
             for name, val in [
+                ("FACTS_SUBSCRIPTION_KEY", subscription_key),
                 ("FACTS_API_KEY", api_key),
                 ("FACTS_API_VERSION", api_version),
                 ("FACTS_SCHOOL_ID", school_id_raw),
@@ -95,11 +110,16 @@ class Settings:
 
         if len(api_key) < 60:
             raise ConfigError(
-                f"FACTS_API_KEY looks too short ({len(api_key)} characters). "
-                "Make sure you used your school-scoped API key (~108 characters), "
-                "not your shorter developer subscription key -- the subscription "
-                "key only authorizes API keys inside the FACTS Developer Portal "
-                "and is never sent to the API itself."
+                f"FACTS_API_KEY looks too short ({len(api_key)} characters) for the "
+                "~108-character school-scoped key. Did you paste FACTS_SUBSCRIPTION_KEY's "
+                "value here by mistake?"
+            )
+
+        if len(subscription_key) > 60:
+            raise ConfigError(
+                f"FACTS_SUBSCRIPTION_KEY looks too long ({len(subscription_key)} characters) "
+                "for the ~32-character developer subscription key. Did you paste "
+                "FACTS_API_KEY's value here by mistake? (The two keys may have gotten swapped.)"
             )
 
         try:
@@ -110,6 +130,7 @@ class Settings:
         attendance_codes = AttendanceCodeMap.load(PROJECT_ROOT / "attendance_codes.json")
 
         return cls(
+            subscription_key=subscription_key,
             api_key=api_key,
             api_version=api_version,
             base_url=base_url,

@@ -1,7 +1,8 @@
 """Thin client for the FACTS SIS API.
 
-Handles auth (Ocp-Apim-Subscription-Key header + api-version query param),
-Sieve-style filter string building, and paging through the
+Handles auth (TWO required headers -- Ocp-Apim-Subscription-Key and
+Facts-Api-Key, see FactsClient.__init__ -- plus the api-version query
+param), Sieve-style filter string building, and paging through the
 `PagedResultOf...` envelope that every list endpoint in the FACTS API
 returns (results / currentPage / pageCount / pageSize / rowCount).
 
@@ -59,11 +60,11 @@ class FactsClient:
         self.session = requests.Session()
         self.session.headers.update(
             {
-                # Header name is fixed by FACTS/Azure APIM as
-                # "Ocp-Apim-Subscription-Key", but the value that
-                # belongs here is your school-scoped API key, not your
-                # developer subscription key -- see Settings.api_key.
-                "Ocp-Apim-Subscription-Key": settings.api_key,
+                # FACTS requires BOTH headers on every request (confirmed
+                # against a live 200 OK from the FACTS Developer Portal's
+                # own request tester):
+                "Ocp-Apim-Subscription-Key": settings.subscription_key,
+                "Facts-Api-Key": settings.api_key,
                 "Accept": "application/json",
             }
         )
@@ -95,9 +96,10 @@ class FactsClient:
                 message = _extract_error_message(resp)
                 if resp.status_code in (401, 403):
                     message += (
-                        " (A 401/403 on every request usually means FACTS_API_KEY in .env is wrong -- "
-                        "double check it's your school-scoped API key from the Developer Portal, not "
-                        "your shorter developer subscription key.)"
+                        " (A 401/403 on every request usually means FACTS_SUBSCRIPTION_KEY and/or "
+                        "FACTS_API_KEY in .env is wrong -- FACTS requires BOTH: the short subscription "
+                        "key in Ocp-Apim-Subscription-Key and the long school-scoped API key in "
+                        "Facts-Api-Key. Double check neither is blank and they haven't been swapped.)"
                     )
                 raise FactsApiError(resp.status_code, message, url)
 

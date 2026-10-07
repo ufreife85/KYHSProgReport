@@ -25,13 +25,14 @@ from facts_progress.tests.fake_client import FakeFactsClient
 
 def make_settings() -> Settings:
     return Settings(
+        subscription_key="fake",
         api_key="fake",
         api_version="1",
         base_url="https://example.invalid",
         school_id=fixtures.SCHOOL_ID,
         school_code=fixtures.SCHOOL_CODE,
         attendance_codes=AttendanceCodeMap(
-            tardy_codes={"T"}, absent_codes={"A", "U"}, cut_codes={"C"}
+            tardy_codes={"T"}, absent_codes={"A", "U"}, cut_codes={"C"}, ignored_codes={"P"}
         ),
     )
 
@@ -82,8 +83,24 @@ def main() -> int:
 
 
 def _get_term(client, settings):
-    from facts_progress.terms import get_term_by_id
-    return get_term_by_id(client, settings.school_id, fixtures.TERM_ID)
+    from facts_progress.terms import NoActiveTermError, get_current_term, get_term_by_id
+
+    # Term ids repeat every school year: a bare term id must be refused as
+    # ambiguous rather than silently picking one year's term.
+    try:
+        get_term_by_id(client, settings.school_id, fixtures.TERM_ID)
+    except NoActiveTermError:
+        pass
+    else:
+        raise AssertionError("a term id that exists in two school years must be refused as ambiguous")
+
+    term = get_term_by_id(client, settings.school_id, fixtures.TERM_ID, fixtures.YEAR_ID)
+    assert term.year_id == fixtures.YEAR_ID, term
+
+    # Auto-detection must land on the current year's term, not last year's.
+    auto = get_current_term(client, settings.school_id, as_of=dt.date.fromisoformat(fixtures.AS_OF_DATE))
+    assert (auto.term_id, auto.year_id) == (fixtures.TERM_ID, fixtures.YEAR_ID), auto
+    return term
 
 
 if __name__ == "__main__":

@@ -9,10 +9,16 @@ SCHOOL_CODE = "MA"
 TERM_ID = 42
 YEAR_ID = 7
 
+PRIOR_YEAR_ID = 6
+
 TERMS = {
     "results": [
         {"termID": 41, "yearID": YEAR_ID, "name": "Full Year", "firstDay": "2026-08-25", "lastDay": "2027-06-15", "schoolCode": SCHOOL_CODE},
         {"termID": TERM_ID, "yearID": YEAR_ID, "name": "MP2 - Mid-Term", "firstDay": "2026-09-01", "lastDay": "2026-11-06", "schoolCode": SCHOOL_CODE},
+        # FACTS term ids REPEAT every school year (every year has a "term 1").
+        # This is last year's term with the SAME id as TERM_ID, to prove the
+        # code never confuses the two.
+        {"termID": TERM_ID, "yearID": PRIOR_YEAR_ID, "name": "MP2 - Mid-Term", "firstDay": "2025-09-01", "lastDay": "2025-11-06", "schoolCode": SCHOOL_CODE},
     ]
 }
 
@@ -61,14 +67,18 @@ COURSE_LEVELS = {
 CLASSES_BY_STUDENT = {
     10321: {
         "results": [
-            {"classId": 5001, "courseID": 801, "name": "Algebra I - A", "section": "A"},
-            {"classId": 5002, "courseID": 802, "name": "English 9 - A", "section": "A"},
+            {"classId": 5001, "courseID": 801, "name": "Algebra I - A", "section": "A", "yearId": YEAR_ID},
+            {"classId": 5002, "courseID": 802, "name": "English 9 - A", "section": "A", "yearId": YEAR_ID},
+            # A class from LAST year -- the student's grade row for it has the
+            # same bare termId as this year's term, and must NOT leak into
+            # this year's report.
+            {"classId": 4001, "courseID": 803, "name": "Chumash - Old", "section": "A", "yearId": PRIOR_YEAR_ID},
         ]
     },
     10455: {
         "results": [
-            {"classId": 5001, "courseID": 801, "name": "Algebra I - A", "section": "A"},
-            {"classId": 5003, "courseID": 803, "name": "Chumash - B", "section": "B"},
+            {"classId": 5001, "courseID": 801, "name": "Algebra I - A", "section": "A", "yearId": YEAR_ID},
+            {"classId": 5003, "courseID": 803, "name": "Chumash - B", "section": "B", "yearId": YEAR_ID},
         ]
     },
 }
@@ -100,6 +110,16 @@ GBK_SUMMARY_BY_STUDENT = {
                 "average": "90.0",
                 "letterGrade": "A-",
                 "fullAverage": 90.0,
+            },
+            # Last year's class, same bare termId as this year's term. A
+            # term-id-only match would wrongly include it (see CLASSES_BY_STUDENT).
+            {
+                "classReference": {"classId": 4001},
+                "studentReference": {"studentId": 10321},
+                "termReference": {"termId": TERM_ID},
+                "average": "71.0",
+                "letterGrade": "C-",
+                "fullAverage": 71.0,
             },
         ]
     },
