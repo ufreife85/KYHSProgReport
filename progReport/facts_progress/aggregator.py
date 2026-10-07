@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from typing import Callable, Iterator
 
 from .attendance import tally_attendance_for_student
 from .config import Settings
-from .facts_client import FactsClient
+from .facts_client import FactsApiError, FactsClient
 from .gradebook import (
     ReferenceData,
     class_course_info,
@@ -90,37 +91,50 @@ def build_student_report(
     return StudentReport(student=student, term=term, classes=rows)
 
 
-def build_reports(
+def iter_reports(
     client: FactsClient,
     settings: Settings,
     term: Term,
     grade_level: str | None = None,
-    homeroom: str | None = None,
     student_ids: set[int] | None = None,
     as_of: dt.date | None = None,
-) -> list[StudentReport]:
+    skip: Callable[[StudentDemographics], bool] | None = None,
+) -> Iterator[tuple[StudentDemographics, StudentReport | None, Exception | None]]:
+    """Builds reports one student at a time, so the caller can write each
+    PDF as soon as it exists instead of losing everything if student #400
+    hits an error.
+
+    Yields (student, report, error):
+      * (student, report, None)  -- built fine
+      * (student, None, error)   -- FACTS failed for this student only; the
+                                    run carries on with the next one
+      * (student, None, None)    -- skipped because skip(student) was true
+    """
     as_of = as_of or dt.date.today()
 
     students = fetch_roster(
         client,
         settings.school_code,
         grade_level=grade_level,
-        homeroom=homeroom,
         student_ids=student_ids,
     )
     logger.info("Roster matched %d active student(s)", len(students))
 
     ref = load_reference_data(client, settings.school_code)
 
-    reports = []
     for i, student in enumerate(students, start=1):
-        logger.info(
-            "[%d/%d] Building report for %s %s (student %s)",
-            i, len(students), student.first_name, student.last_name, student.student_id,
-        )
-        reports.append(build_student_report(client, settings, ref, student, term, as_of))
-
-    return reports
+        if skip and skip(student):
+            logger.info("[%d/%d] Skipping student %s (PDF already exists)", i, len(students), student.student_id)
+            yield student, None, None
+            continue
+        logger.info("[%d/%d] Building report for student %s", i, len(students), student.student_id)
+        try:
+            report = build_student_report(client, settings, ref, student, term, as_of)
+        except FactsApiError as exc:
+            logger.error("Student %s FAILED: %s", student.student_id, exc)
+            yield student, None, exc
+            continue
+        yield student, report, None
 
 
 def _safe_date(value: str | None) -> dt.date | None:

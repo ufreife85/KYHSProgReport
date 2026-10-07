@@ -14,7 +14,6 @@ class StudentDemographics:
     first_name: str
     last_name: str
     grade_level: str
-    homeroom: str
     advisor_name: str | None = None
 
 

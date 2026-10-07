@@ -5,9 +5,6 @@ Examples:
     # Generate for every active student in grade 9
     python main.py --grade 09
 
-    # Generate for a whole homeroom
-    python main.py --homeroom "Mr. Cohen 4A"
-
     # Generate for every active student in the school
     python main.py --all
 
@@ -15,7 +12,7 @@ Examples:
     python main.py --student 10321 --student 10455
 
     # Use an explicit term instead of auto-detecting today's term
-    python main.py --all --term-id 42
+    python main.py --all --term-id 1 --year-id 271
 
     # Just see what attendance codes / terms your FACTS instance has
     python main.py --list-attendance-codes
@@ -29,11 +26,11 @@ import logging
 import sys
 from pathlib import Path
 
-from facts_progress.aggregator import build_reports
+from facts_progress.aggregator import iter_reports
 from facts_progress.attendance import fetch_attendance_codes
 from facts_progress.config import ConfigError, Settings
 from facts_progress.facts_client import FactsApiError, FactsClient
-from facts_progress.pdf_report import build_student_pdf, output_filename
+from facts_progress.pdf_report import build_student_pdf, student_filename
 from facts_progress.terms import NoActiveTermError, get_all_terms, get_current_term, get_term_by_id
 
 logger = logging.getLogger("facts_progress")
@@ -45,7 +42,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     scope = parser.add_mutually_exclusive_group()
     scope.add_argument("--all", action="store_true", help="Every active student in the school.")
     scope.add_argument("--grade", metavar="LEVEL", help="Only students in this grade level (e.g. 09).")
-    scope.add_argument("--homeroom", metavar="NAME", help="Only students in this homeroom.")
     scope.add_argument(
         "--student", action="append", type=int, metavar="STUDENT_ID",
         help="Only this student (FACTS student id). Repeat for multiple students.",
@@ -61,6 +57,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, help="Where to write PDFs. Defaults to ./output.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging (shows raw API row counts, filter strings used, etc.).")
 
+    parser.add_argument(
+        "--skip-existing", action="store_true",
+        help="Skip any student whose PDF is already in the output folder. Lets you re-run after a failure "
+             "and only redo what's missing.",
+    )
     parser.add_argument("--list-terms", action="store_true", help="Print all FACTS terms for the configured school and exit.")
     parser.add_argument(
         "--list-attendance-codes", action="store_true",
@@ -95,32 +96,45 @@ def main(argv=None) -> int:
         as_of = _resolve_as_of_date(args)
 
         student_ids = set(args.student) if args.student else None
-        reports = build_reports(
+        output_dir = args.output_dir or (Path(__file__).resolve().parent / "output")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        skip = (lambda s: (output_dir / student_filename(s)).exists()) if args.skip_existing else None
+
+        written = skipped = 0
+        failed: list[int] = []
+        for student, report, error in iter_reports(
             client,
             settings,
             term=term,
             grade_level=args.grade,
-            homeroom=args.homeroom,
             student_ids=student_ids,
             as_of=as_of,
-        )
+            skip=skip,
+        ):
+            if error is not None:
+                failed.append(student.student_id)
+            elif report is None:
+                skipped += 1
+            else:
+                path = output_dir / student_filename(student)
+                build_student_pdf(report, args.school_name, path)
+                written += 1
+                logger.info("Wrote %s", path.name)
     except (FactsApiError, NoActiveTermError, ConfigError) as exc:
         logger.error(str(exc))
         return 1
 
-    if not reports:
+    if not (written or skipped or failed):
         logger.warning("No students matched the given filters -- nothing to generate.")
         return 0
 
-    output_dir = args.output_dir or (Path(__file__).resolve().parent / "output")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    for report in reports:
-        path = output_dir / output_filename(report)
-        build_student_pdf(report, args.school_name, path)
-        logger.info("Wrote %s", path)
-
-    logger.info("Done. %d PDF(s) written to %s", len(reports), output_dir)
+    logger.info("Done. %d PDF(s) written, %d skipped (already existed), %d failed. %d FACTS requests used. Folder: %s",
+                written, skipped, len(failed), client.request_count, output_dir)
+    if failed:
+        logger.error("Failed student ids: %s -- re-run the same command with --skip-existing to retry only these.",
+                     ", ".join(str(i) for i in failed))
+        return 1
     return 0
 
 

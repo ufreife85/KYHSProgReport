@@ -81,6 +81,12 @@ class Settings:
     school_code: str
     attendance_codes: AttendanceCodeMap
     output_dir: Path = field(default_factory=lambda: PROJECT_ROOT / "output")
+    # Your FACTS plan's request limits (what FACTS allows, not what we use --
+    # facts_client.py paces itself a bit under these). Defaults are the
+    # current plan: 10 per second, 100 per minute. After a plan upgrade, set
+    # FACTS_RATE_LIMIT_PER_SECOND / FACTS_RATE_LIMIT_PER_MINUTE in .env.
+    rate_limit_per_second: int = 10
+    rate_limit_per_minute: int = 100
 
     @classmethod
     def load(cls) -> "Settings":
@@ -129,6 +135,18 @@ class Settings:
 
         attendance_codes = AttendanceCodeMap.load(PROJECT_ROOT / "attendance_codes.json")
 
+        def _limit(name: str, default: int) -> int:
+            raw = os.getenv(name, "").strip()
+            if not raw:
+                return default
+            try:
+                value = int(raw)
+            except ValueError:
+                value = 0
+            if value < 1:
+                raise ConfigError(f"{name} must be a whole number of 1 or more (got {raw!r}).")
+            return value
+
         return cls(
             subscription_key=subscription_key,
             api_key=api_key,
@@ -137,4 +155,6 @@ class Settings:
             school_id=school_id,
             school_code=school_code,
             attendance_codes=attendance_codes,
+            rate_limit_per_second=_limit("FACTS_RATE_LIMIT_PER_SECOND", 10),
+            rate_limit_per_minute=_limit("FACTS_RATE_LIMIT_PER_MINUTE", 100),
         )

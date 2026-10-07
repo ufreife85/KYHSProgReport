@@ -22,31 +22,31 @@ TERMS = {
     ]
 }
 
+# /Students in real FACTS has NO names and NO homeroom -- just ids, status and
+# grade. Current students have status "Enrolled" (not "Active").
 STUDENTS = {
     "results": [
-        {
-            "school": {"status": "Active", "gradeLevel": "09"},
-            "homeroom": "Rm 204",
-            "studentId": 10321,
-            "schoolCode": SCHOOL_CODE,
-            "demographics": {"person": {"firstName": "Ari", "lastName": "Blumenthal", "personId": 55001}},
-        },
-        {
-            "school": {"status": "Active", "gradeLevel": "09"},
-            "homeroom": "Rm 204",
-            "studentId": 10455,
-            "schoolCode": SCHOOL_CODE,
-            "demographics": {"person": {"firstName": "Shira", "lastName": "Katz", "personId": 55002}},
-        },
-        {
-            "school": {"status": "Withdrawn", "gradeLevel": "09"},
-            "homeroom": "Rm 204",
-            "studentId": 10999,
-            "schoolCode": SCHOOL_CODE,
-            "demographics": {"person": {"firstName": "Old", "lastName": "Student", "personId": 55099}},
-        },
+        {"school": {"status": "Enrolled", "gradeLevel": "09"}, "personStudentId": 2001, "studentId": 10321, "schoolCode": SCHOOL_CODE, "configSchoolId": SCHOOL_ID},
+        {"school": {"status": "Enrolled", "gradeLevel": "09"}, "personStudentId": 2002, "studentId": 10455, "schoolCode": SCHOOL_CODE, "configSchoolId": SCHOOL_ID},
+        {"school": {"status": "Enrolled", "gradeLevel": "10"}, "personStudentId": 2003, "studentId": 10500, "schoolCode": SCHOOL_CODE, "configSchoolId": SCHOOL_ID},
+        {"school": {"status": "Withdrawn", "gradeLevel": "09"}, "personStudentId": 2099, "studentId": 10999, "schoolCode": SCHOOL_CODE, "configSchoolId": SCHOOL_ID},
+        {"school": {"status": "Admissions", "gradeLevel": "09"}, "personStudentId": 2098, "studentId": 10888, "schoolCode": SCHOOL_CODE, "configSchoolId": SCHOOL_ID},
     ]
 }
+
+# /People: a student's personId is the SAME number as their studentId.
+# (personStudentId would 404 -- see roster.py.)
+PEOPLE = {
+    10321: {"personId": 10321, "firstName": "Ari", "lastName": "Blumenthal"},
+    10455: {"personId": 10455, "firstName": "Shira", "lastName": "Katz"},
+    10500: {"personId": 10500, "firstName": "Dov", "lastName": "Levi"},
+    10999: {"personId": 10999, "firstName": "Old", "lastName": "Student"},
+    10888: {"personId": 10888, "firstName": "New", "lastName": "Applicant"},
+}
+
+# The batched /People list lookup "misses" these people; the code must then
+# find them one at a time via /People/{id}.
+PEOPLE_LIST_OMITS = {10455}
 
 COURSES = {
     "results": [
@@ -89,6 +89,7 @@ GBK_SUMMARY_BY_STUDENT = {
             {
                 "classReference": {"classId": 5001},
                 "studentReference": {"studentId": 10321},
+                "classCategoryReference": {"classCategoryId": -1},
                 "termReference": {"termId": TERM_ID},
                 "average": "88.4",
                 "letterGrade": "B+",
@@ -97,15 +98,38 @@ GBK_SUMMARY_BY_STUDENT = {
             {
                 "classReference": {"classId": 5002},
                 "studentReference": {"studentId": 10321},
+                "classCategoryReference": {"classCategoryId": -1},
                 "termReference": {"termId": TERM_ID},
                 "average": "95.1",
                 "letterGrade": "A",
                 "fullAverage": 95.06,
             },
+            # Sub-category rows (e.g. Homework, Tests) for the SAME class and
+            # term, listed AFTER the overall row. A reader that just keeps the
+            # last row per class would wrongly report these instead of 88.4.
+            {
+                "classReference": {"classId": 5001},
+                "studentReference": {"studentId": 10321},
+                "classCategoryReference": {"classCategoryId": 11},
+                "termReference": {"termId": TERM_ID},
+                "average": "100.0",
+                "letterGrade": "A",
+                "fullAverage": 100.0,
+            },
+            {
+                "classReference": {"classId": 5001},
+                "studentReference": {"studentId": 10321},
+                "classCategoryReference": {"classCategoryId": 12},
+                "termReference": {"termId": TERM_ID},
+                "average": "61.5",
+                "letterGrade": "D-",
+                "fullAverage": 61.5,
+            },
             # A full-year-average row for a different term should be ignored:
             {
                 "classReference": {"classId": 5001},
                 "studentReference": {"studentId": 10321},
+                "classCategoryReference": {"classCategoryId": -1},
                 "termReference": {"termId": 41},
                 "average": "90.0",
                 "letterGrade": "A-",
@@ -116,6 +140,7 @@ GBK_SUMMARY_BY_STUDENT = {
             {
                 "classReference": {"classId": 4001},
                 "studentReference": {"studentId": 10321},
+                "classCategoryReference": {"classCategoryId": -1},
                 "termReference": {"termId": TERM_ID},
                 "average": "71.0",
                 "letterGrade": "C-",
@@ -128,6 +153,7 @@ GBK_SUMMARY_BY_STUDENT = {
             {
                 "classReference": {"classId": 5001},
                 "studentReference": {"studentId": 10455},
+                "classCategoryReference": {"classCategoryId": -1},
                 "termReference": {"termId": TERM_ID},
                 "average": "76.2",
                 "letterGrade": "C+",
@@ -136,6 +162,7 @@ GBK_SUMMARY_BY_STUDENT = {
             {
                 "classReference": {"classId": 5003},
                 "studentReference": {"studentId": 10455},
+                "classCategoryReference": {"classCategoryId": -1},
                 "termReference": {"termId": TERM_ID},
                 "average": "",
                 "letterGrade": "INC",

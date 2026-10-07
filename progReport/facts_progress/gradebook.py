@@ -111,26 +111,46 @@ def _numeric_grade(row: dict) -> float | None:
     return None
 
 
+# GbkSummary returns several rows per class per term: one per assessment
+# category (homework, tests, ...) PLUS one overall course average. The
+# overall row is the one whose classCategoryReference.classCategoryId is -1
+# (confirmed at Yeshivah by the Eligibility dashboard, which finds it as the
+# category that exists for every student/class pair). Only that row is the
+# course grade -- never fall back to a category row.
+OVERALL_CATEGORY_ID = -1
+
+# A student has hundreds of GbkSummary rows across all years (one per
+# category per class per term). 1000 per page (the size the Eligibility
+# dashboard already uses against this FACTS instance) turns ~6 calls into 1,
+# which matters a lot against a 100-requests-per-minute limit.
+GRADE_PAGE_SIZE = 1000
+
+
 def fetch_grades_for_student(client: FactsClient, student_id: int, term_id: int) -> dict[int, float | None]:
     """Returns classId -> numeric_grade for a student's grades in the
-    given term, pulled from GbkSummary.
+    given term, pulled from the overall-average row of GbkSummary.
     """
     grades: dict[int, float | None] = {}
     raw_count = 0
-    for row in client.get_paged("/Gradebooks/GbkSummary", filters=f"studentId=={student_id}"):
+    term_rows = 0
+    for row in client.get_paged("/Gradebooks/GbkSummary", filters=f"studentId=={student_id}", page_size=GRADE_PAGE_SIZE):
         raw_count += 1
         row_student_id = ((row.get("studentReference") or {}).get("studentId"))
         row_term_id = ((row.get("termReference") or {}).get("termId"))
         row_class_id = ((row.get("classReference") or {}).get("classId"))
+        row_category_id = ((row.get("classCategoryReference") or {}).get("classCategoryId"))
 
         if row_student_id != student_id or row_term_id != term_id or row_class_id is None:
+            continue
+        term_rows += 1
+        if row_category_id != OVERALL_CATEGORY_ID:
             continue
 
         grades[row_class_id] = _numeric_grade(row)
 
     logger.debug(
-        "GbkSummary: %d raw rows for student %d, %d matched term %d",
-        raw_count, student_id, len(grades), term_id,
+        "GbkSummary: %d raw rows for student %d, %d in term %d, %d of those are overall-average rows",
+        raw_count, student_id, term_rows, term_id, len(grades),
     )
     return grades
 

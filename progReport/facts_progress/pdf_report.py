@@ -41,7 +41,10 @@ def output_filename(report: StudentReport) -> str:
     script (see google_apps_script/) match a PDF to a student id
     unambiguously, even if two students share a name.
     """
-    s = report.student
+    return student_filename(report.student)
+
+
+def student_filename(s) -> str:
     return f"{s.student_id}_{_safe_filename(s.last_name)}_{_safe_filename(s.first_name)}.pdf"
 
 
@@ -101,7 +104,7 @@ def build_student_pdf(report: StudentReport, school_name: str, output_path: Path
     s = report.student
     meta_rows = [
         ["Student:", f"{s.first_name} {s.last_name}", "Grade Level:", s.grade_level or "—"],
-        ["Homeroom:", s.homeroom or "—", "Term Dates:", f"{report.term.first_day or '?'} – {report.term.last_day or '?'}"],
+        ["Term Dates:", f"{report.term.first_day or '?'} – {report.term.last_day or '?'}", "", ""],
     ]
     meta_table = Table(meta_rows, colWidths=[1.0 * inch, 2.6 * inch, 1.1 * inch, 2.1 * inch])
     meta_table.setStyle(
