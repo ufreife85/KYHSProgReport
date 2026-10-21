@@ -13,11 +13,13 @@ from .config import Settings
 from .facts_client import FactsApiError, FactsClient
 from .gradebook import (
     ReferenceData,
+    attendance_enabled,
     class_course_info,
     classes_in_year,
     fetch_grades_for_student,
     fetch_student_classes,
     load_reference_data,
+    teacher_names,
 )
 from .models import ClassProgress, StudentDemographics, StudentReport, Term
 from .roster import fetch_roster
@@ -62,24 +64,35 @@ def build_student_report(
         if cid in student_classes
     }
 
-    # A row belongs in the report if the student has a computed grade
-    # for this term in that class, and/or has tallied attendance events
-    # in it -- this naturally excludes classes that don't meet this
-    # term while still surfacing a class with attendance but no grade
-    # entered yet (common early in a marking period).
-    class_ids = set(grades_by_class) | set(attendance_by_class)
-
+    # Which classes belong on the report:
+    #   * the course must have attendance turned on in FACTS (advising,
+    #     service hours etc. are excluded), AND
+    #   * the class meets in the report term (its termN flag), OR the student
+    #     already has a grade or counted attendance in it.
+    # The second part is what lets a class with no grade -- Shacharit,
+    # Mincha -- appear even when the student has had no tardies/absences/cuts.
     rows = []
-    for class_id in class_ids:
-        class_info = student_classes.get(class_id, {})
+    omitted_with_grade: list[str] = []
+    for class_id, class_info in student_classes.items():
         course_name, course_level = class_course_info(ref, class_info)
-        tallies = attendance_by_class.get(class_id, {"tardies": 0, "absences": 0, "cuts": 0})
+        has_evidence = class_id in grades_by_class or class_id in attendance_by_class
 
+        if not attendance_enabled(ref, class_info):
+            if class_id in grades_by_class:
+                omitted_with_grade.append(course_name)
+            continue
+
+        meets_term = bool((class_info.get("terms") or {}).get(term.term_id))
+        if not (meets_term or has_evidence):
+            continue
+
+        tallies = attendance_by_class.get(class_id, {"tardies": 0, "absences": 0, "cuts": 0})
         rows.append(
             ClassProgress(
                 class_id=class_id,
                 course_name=course_name,
                 course_level=course_level,
+                teacher=teacher_names(client, ref, class_info),
                 numeric_grade=grades_by_class.get(class_id),
                 tardies=tallies["tardies"],
                 absences=tallies["absences"],
@@ -88,7 +101,7 @@ def build_student_report(
         )
 
     rows.sort(key=lambda r: r.course_name.lower())
-    return StudentReport(student=student, term=term, classes=rows)
+    return StudentReport(student=student, term=term, classes=rows, omitted_with_grade=omitted_with_grade)
 
 
 def iter_reports(

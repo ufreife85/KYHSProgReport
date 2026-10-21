@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from .facts_client import FactsClient
+from .facts_client import FactsApiError, FactsClient
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ class ReferenceData:
     every student."""
     courses_by_id: dict[int, dict] = field(default_factory=dict)          # courseID -> {"title", "levelID"}
     course_levels_by_id: dict[int, str] = field(default_factory=dict)      # courseLevelID -> levelName
+    staff_names_by_id: dict[int, str] = field(default_factory=dict)        # staffId -> "First Last"
 
 
 def load_reference_data(client: FactsClient, school_code: str) -> ReferenceData:
@@ -39,6 +40,9 @@ def load_reference_data(client: FactsClient, school_code: str) -> ReferenceData:
         ref.courses_by_id[row["courseID"]] = {
             "title": row.get("title") or row.get("abbreviation") or f"Course {row['courseID']}",
             "levelID": row.get("levelID"),
+            # Whether FACTS has attendance turned on for this course. Advising,
+            # service hours, etc. have it off and don't belong on the report.
+            "attendance": row.get("attendance"),
         }
 
     for row in client.get_paged("/Gradebooks/CourseLevel"):
@@ -46,15 +50,56 @@ def load_reference_data(client: FactsClient, school_code: str) -> ReferenceData:
         if level_id is not None:
             ref.course_levels_by_id[level_id] = row.get("levelName") or ""
 
+    for row in client.get_paged("/People/Staff"):
+        staff_id = row.get("staffId")
+        if staff_id is not None:
+            ref.staff_names_by_id[staff_id] = _staff_name(row)
+
     logger.debug(
-        "Loaded reference data: %d courses, %d course levels",
-        len(ref.courses_by_id), len(ref.course_levels_by_id),
+        "Loaded reference data: %d courses, %d course levels, %d staff",
+        len(ref.courses_by_id), len(ref.course_levels_by_id), len(ref.staff_names_by_id),
     )
     return ref
 
 
+def _staff_name(record: dict) -> str:
+    """"First Last" from a FACTS Staff record (falls back to its `name`)."""
+    first = (record.get("firstName") or "").strip()
+    last = (record.get("lastName") or "").strip()
+    return f"{first} {last}".strip() or (record.get("name") or "").strip()
+
+
+def teacher_names(client: FactsClient, ref: ReferenceData, class_info: dict) -> str:
+    """The class's teacher, plus the second teacher if it has one
+    ("A / B"). Names come from the staff list loaded once per run; anyone
+    missing from it is looked up individually and remembered."""
+    names: list[str] = []
+    for key in ("staffId", "secondaryStaffId"):
+        staff_id = class_info.get(key)
+        if not staff_id:
+            continue
+        if staff_id not in ref.staff_names_by_id:
+            try:
+                ref.staff_names_by_id[staff_id] = _staff_name(client.get_one(f"/People/Staff/{staff_id}", params={}))
+            except FactsApiError as exc:
+                logger.warning("No teacher name found for staff id %s (%s).", staff_id, exc)
+                ref.staff_names_by_id[staff_id] = ""
+        name = ref.staff_names_by_id[staff_id]
+        if name and name not in names:
+            names.append(name)
+    return " / ".join(names)
+
+
+def attendance_enabled(ref: ReferenceData, class_info: dict) -> bool:
+    """False only when FACTS explicitly says the class's course has
+    attendance turned off. If the course or its flag is unknown, the class
+    is kept -- better an extra row than a silently missing class."""
+    return ref.courses_by_id.get(class_info.get("courseID"), {}).get("attendance") is not False
+
+
 def fetch_student_classes(client: FactsClient, student_id: int) -> dict[int, dict]:
-    """Returns classId -> {"courseID", "name", "section", "yearId"} for
+    """Returns classId -> {"courseID", "name", "section", "yearId", "terms",
+    "staffId", ...} for
     every class the student has been scheduled into -- ALL school years,
     not just the current one. Use classes_in_year() to narrow it down."""
     classes: dict[int, dict] = {}
@@ -67,6 +112,12 @@ def fetch_student_classes(client: FactsClient, student_id: int) -> dict[int, dic
             "name": row.get("name"),
             "section": row.get("section"),
             "yearId": row.get("yearId"),
+            # Which of the year's terms the class meets in (term1..term6 flags),
+            # and who teaches it.
+            "terms": {n: bool(row.get(f"term{n}")) for n in range(1, 7)},
+            "staffId": row.get("staffId"),
+            "secondaryStaffId": row.get("secondaryStaffId"),
+            "aideId": row.get("aideId"),
         }
     return classes
 

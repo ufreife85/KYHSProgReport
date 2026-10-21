@@ -21,6 +21,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import datetime as dt
 import logging
 import sys
@@ -57,6 +58,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, help="Where to write PDFs. Defaults to ./output.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging (shows raw API row counts, filter strings used, etc.).")
 
+    parser.add_argument(
+        "--cutoff-date", metavar="YYYY-MM-DD",
+        help="The date printed in the footer ('...reflect the student's performance up to <date>'). "
+             "Defaults to the as-of date (today unless --as-of-date is given).",
+    )
     parser.add_argument(
         "--skip-existing", action="store_true",
         help="Skip any student whose PDF is already in the output folder. Lets you re-run after a failure "
@@ -95,6 +101,7 @@ def main(argv=None) -> int:
         term = _resolve_term(client, settings, args)
         as_of = _resolve_as_of_date(args)
 
+        cutoff = _resolve_cutoff_date(args, as_of)
         student_ids = set(args.student) if args.student else None
         output_dir = args.output_dir or (Path(__file__).resolve().parent / "output")
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -102,7 +109,9 @@ def main(argv=None) -> int:
         skip = (lambda s: (output_dir / student_filename(s)).exists()) if args.skip_existing else None
 
         written = skipped = 0
+        omitted: Counter = Counter()
         failed: list[int] = []
+        row_counts: dict[str, dict[int, list[int]]] = {}   # grade -> {rows on report -> [student ids]}
         for student, report, error in iter_reports(
             client,
             settings,
@@ -118,7 +127,9 @@ def main(argv=None) -> int:
                 skipped += 1
             else:
                 path = output_dir / student_filename(student)
-                build_student_pdf(report, args.school_name, path)
+                build_student_pdf(report, args.school_name, path, cutoff)
+                omitted.update(report.omitted_with_grade)
+                row_counts.setdefault(student.grade_level, {}).setdefault(len(report.classes), []).append(student.student_id)
                 written += 1
                 logger.info("Wrote %s", path.name)
     except (FactsApiError, NoActiveTermError, ConfigError) as exc:
@@ -131,11 +142,34 @@ def main(argv=None) -> int:
 
     logger.info("Done. %d PDF(s) written, %d skipped (already existed), %d failed. %d FACTS requests used. Folder: %s",
                 written, skipped, len(failed), client.request_count, output_dir)
+    _log_row_count_summary(row_counts)
+    if omitted:
+        logger.info(
+            "Classes left OFF reports because their course has attendance turned off in FACTS, "
+            "even though the student had a grade in them (check none of these should be on a report): %s",
+            "; ".join(f"{title} ({n} student{'s' if n != 1 else ''})" for title, n in sorted(omitted.items())),
+        )
     if failed:
         logger.error("Failed student ids: %s -- re-run the same command with --skip-existing to retry only these.",
                      ", ".join(str(i) for i in failed))
         return 1
     return 0
+
+
+def _log_row_count_summary(row_counts: dict[str, dict[int, list[int]]]) -> None:
+    """For each grade: how many students have N classes on their report, and
+    the ids of anyone whose count differs from that grade's most common count
+    (the likely candidates for a missing or extra class). Ids only, no names."""
+    for grade in sorted(row_counts):
+        by_count = row_counts[grade]
+        total = sum(len(ids) for ids in by_count.values())
+        usual = max(by_count, key=lambda n: len(by_count[n]))
+        spread = ", ".join(f"{n} classes: {len(by_count[n])}" for n in sorted(by_count))
+        logger.info("Grade %s -- %d report(s). Classes per report: %s", grade, total, spread)
+        for n in sorted(by_count):
+            if n != usual:
+                logger.info("  Grade %s, %d classes (most common is %d): student ids %s",
+                            grade, n, usual, ", ".join(str(i) for i in by_count[n]))
 
 
 def _resolve_term(client: FactsClient, settings: Settings, args: argparse.Namespace):
@@ -145,6 +179,16 @@ def _resolve_term(client: FactsClient, settings: Settings, args: argparse.Namesp
     if args.term_id:
         return get_term_by_id(client, settings.school_id, args.term_id, args.year_id)
     return get_current_term(client, settings.school_id)
+
+
+def _resolve_cutoff_date(args: argparse.Namespace, as_of: dt.date) -> dt.date:
+    if not args.cutoff_date:
+        return as_of
+    try:
+        return dt.date.fromisoformat(args.cutoff_date)
+    except ValueError:
+        logger.error("--cutoff-date must be YYYY-MM-DD, got %r", args.cutoff_date)
+        raise SystemExit(2)
 
 
 def _resolve_as_of_date(args: argparse.Namespace) -> dt.date:

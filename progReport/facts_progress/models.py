@@ -33,6 +33,7 @@ class ClassProgress:
     class_id: int
     course_name: str
     course_level: str
+    teacher: str
     numeric_grade: float | None
     tardies: int = 0
     absences: int = 0
@@ -44,3 +45,7 @@ class StudentReport:
     student: StudentDemographics
     term: Term
     classes: list[ClassProgress] = field(default_factory=list)
+    # Titles of classes the student HAS a grade in but that were left off the
+    # report because their course has attendance turned off in FACTS. Only
+    # used for the end-of-run summary, so a wrongly-dropped course shows up.
+    omitted_with_grade: list[str] = field(default_factory=list)

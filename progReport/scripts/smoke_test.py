@@ -60,6 +60,9 @@ def main() -> int:
     ref = load_reference_data(client, settings.school_code)
     assert ref.courses_by_id[801]["title"] == "Algebra I"
     assert ref.course_levels_by_id[1] == "Honors"
+    assert ref.courses_by_id[806]["attendance"] is False and ref.courses_by_id[801]["attendance"] is True
+    assert ref.staff_names_by_id[301] == "Sara Goldberg"
+    assert 304 not in ref.staff_names_by_id, "fixture: staff 304 is deliberately missing from the list"
 
     output_dir = Path(__file__).resolve().parent.parent / "output" / "smoke_test"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -70,12 +73,21 @@ def main() -> int:
         reports.append(report)
 
         path = output_dir / output_filename(report)
-        build_student_pdf(report, "Sample Academy", path)
+        build_student_pdf(report, "Sample Academy", path, cutoff_date=dt.date(2026, 10, 7))
         print(f"wrote {path} ({path.stat().st_size} bytes)")
 
     ari = next(r for r in reports if r.student.student_id == 10321)
     ari_by_course = {c.course_name: c for c in ari.classes}
-    assert set(ari_by_course) == {"Algebra I", "English 9"}, ari_by_course
+    assert set(ari_by_course) == {"Algebra I", "English 9", "Shacharit"}, (
+        "Shacharit (attendance on, no grade, no events) must appear; the Advisor (attendance off), "
+        f"the term-3-only elective and last year's Chumash must not: {set(ari_by_course)}"
+    )
+    shac = ari_by_course["Shacharit"]
+    assert (shac.numeric_grade, shac.tardies, shac.absences, shac.cuts) == (None, 0, 0, 0), shac
+    assert shac.teacher == "Yosef Weiss", "a teacher missing from the staff list must be found one-at-a-time"
+    assert ari_by_course["Algebra I"].teacher == "Sara Goldberg / Moshe Rubin", "primary / secondary teacher"
+    assert ari_by_course["English 9"].teacher == "Dina Katz"
+    assert ari.omitted_with_grade == [], ari.omitted_with_grade
     assert ari_by_course["Algebra I"].numeric_grade == 88.4, "should use MP2 grade, not full-year row"
     assert ari_by_course["Algebra I"].course_level == "Honors"
     assert ari_by_course["Algebra I"].tardies == 2, "the Dec 1 tardy is outside the as-of window and must not count"
@@ -86,6 +98,12 @@ def main() -> int:
     shira_by_course = {c.course_name: c for c in shira.classes}
     assert shira_by_course["Chumash"].numeric_grade is None, "blank average + fullAverage 0 -> should be None, not 0.0"
     assert shira_by_course["Chumash"].cuts == 2
+    assert shira_by_course["Chumash"].teacher == "Moshe Rubin"
+    assert set(shira_by_course) == {"Algebra I", "Chumash"}, "Study Hall has attendance off and must be left off"
+    assert shira.omitted_with_grade == ["Study Hall"], shira.omitted_with_grade
+
+    _check_helpers(client, ref)
+    _check_pdf_layout(output_dir, reports)
 
     _check_batch_behaviour(client, settings, term, as_of)
     _check_retry_wait()
@@ -94,6 +112,30 @@ def main() -> int:
     print("\nAll smoke-test assertions passed.")
     print(f"Sample PDFs written to: {output_dir}")
     return 0
+
+
+def _check_helpers(client, ref):
+    from facts_progress.facts_client import FactsApiError  # noqa: F401
+    from facts_progress.gradebook import attendance_enabled, teacher_names
+
+    assert attendance_enabled(ref, {"courseID": 999}) is True, "unknown course -> keep, never silently drop"
+    assert attendance_enabled(ref, {"courseID": 806}) is False
+    assert teacher_names(client, ref, {"staffId": 399}) == "", "an unknown teacher gives a blank, not a crash"
+    assert teacher_names(client, ref, {"staffId": 301, "secondaryStaffId": 301}) == "Sara Goldberg", "no duplicates"
+    assert teacher_names(client, ref, {}) == ""
+
+
+def _check_pdf_layout(output_dir, reports):
+    """Landscape letter, and the footer wording is on the page."""
+    import re
+
+    pdf_path = output_dir / output_filename(reports[0])
+    raw = pdf_path.read_bytes()
+    m = re.search(rb"/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]", raw)
+    assert m, "no MediaBox found in the PDF"
+    width, height = float(m.group(1)), float(m.group(2))
+    assert width > height, f"PDF should be landscape, got {width}x{height}"
+    assert (round(width), round(height)) == (792, 612), (width, height)
 
 
 def _check_batch_behaviour(client, settings, term, as_of):

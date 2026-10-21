@@ -12,6 +12,7 @@ from ..facts_client import FactsApiError
 
 _STUDENT_CLASSES_RE = re.compile(r"^/Classes/v2/Students/(\d+)$")
 _PERSON_RE = re.compile(r"^/People/(\d+)$")
+_STAFF_RE = re.compile(r"^/People/Staff/(\d+)$")
 
 
 class FakeFactsClient:
@@ -40,6 +41,12 @@ class FakeFactsClient:
             for pid in _extract_person_ids(filters):
                 if pid in fixtures.PEOPLE and pid not in fixtures.PEOPLE_LIST_OMITS:
                     yield fixtures.PEOPLE[pid]
+            return
+
+        if path == "/People/Staff":
+            for sid, row in fixtures.STAFF.items():
+                if sid not in fixtures.STAFF_LIST_OMITS:
+                    yield row
             return
 
         if path == "/Courses":
@@ -78,6 +85,13 @@ class FakeFactsClient:
         get_paged() serves, so scripts that call get_one() (e.g.
         scripts/check_setup.py's auth ping) can be exercised offline too.
         """
+        m = _STAFF_RE.match(path)
+        if m:
+            staff = fixtures.STAFF.get(int(m.group(1)))
+            if staff is None:
+                raise FactsApiError(404, "Not Found", path)
+            return staff
+
         m = _PERSON_RE.match(path)
         if m:
             person = fixtures.PEOPLE.get(int(m.group(1)))

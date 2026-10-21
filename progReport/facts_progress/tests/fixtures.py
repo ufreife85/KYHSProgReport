@@ -6,14 +6,14 @@ from __future__ import annotations
 
 SCHOOL_ID = 5001
 SCHOOL_CODE = "MA"
-TERM_ID = 42
+TERM_ID = 2
 YEAR_ID = 7
 
 PRIOR_YEAR_ID = 6
 
 TERMS = {
     "results": [
-        {"termID": 41, "yearID": YEAR_ID, "name": "Full Year", "firstDay": "2026-08-25", "lastDay": "2027-06-15", "schoolCode": SCHOOL_CODE},
+        {"termID": 1, "yearID": YEAR_ID, "name": "Full Year", "firstDay": "2026-08-25", "lastDay": "2027-06-15", "schoolCode": SCHOOL_CODE},
         {"termID": TERM_ID, "yearID": YEAR_ID, "name": "MP2 - Mid-Term", "firstDay": "2026-09-01", "lastDay": "2026-11-06", "schoolCode": SCHOOL_CODE},
         # FACTS term ids REPEAT every school year (every year has a "term 1").
         # This is last year's term with the SAME id as TERM_ID, to prove the
@@ -50,11 +50,31 @@ PEOPLE_LIST_OMITS = {10455}
 
 COURSES = {
     "results": [
-        {"courseID": 801, "title": "Algebra I", "abbreviation": "ALG1", "schoolCode": SCHOOL_CODE, "levelID": 1},
-        {"courseID": 802, "title": "English 9", "abbreviation": "ENG9", "schoolCode": SCHOOL_CODE, "levelID": 2},
-        {"courseID": 803, "title": "Chumash", "abbreviation": "CHUM", "schoolCode": SCHOOL_CODE, "levelID": 2},
+        {"courseID": 801, "title": "Algebra I", "abbreviation": "ALG1", "schoolCode": SCHOOL_CODE, "levelID": 1, "attendance": True},
+        {"courseID": 802, "title": "English 9", "abbreviation": "ENG9", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": True},
+        {"courseID": 803, "title": "Chumash", "abbreviation": "CHUM", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": True},
+        # Shacharit: attendance on, never graded.
+        {"courseID": 805, "title": "Shacharit", "abbreviation": "SHAC", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": True},
+        # Advising: attendance OFF -- must never appear on a report.
+        {"courseID": 806, "title": "12th Grade Advisor", "abbreviation": "ADV", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": False},
+        # Attendance on, but only meets in term 3 (not the report term).
+        {"courseID": 807, "title": "Spring Elective", "abbreviation": "SPRE", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": True},
+        # Attendance OFF but the student has a grade in it -- must be left off
+        # AND reported in omitted_with_grade.
+        {"courseID": 808, "title": "Study Hall", "abbreviation": "STUD", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": False},
     ]
 }
+
+# /People/Staff list (what load_reference_data reads) ...
+STAFF = {
+    301: {"staffId": 301, "firstName": "Sara", "lastName": "Goldberg", "name": "Goldberg, Sara"},
+    302: {"staffId": 302, "firstName": "Moshe", "lastName": "Rubin", "name": "Rubin, Moshe"},
+    303: {"staffId": 303, "firstName": "Dina", "lastName": "Katz", "name": "Katz, Dina"},
+    304: {"staffId": 304, "firstName": "Yosef", "lastName": "Weiss", "name": "Weiss, Yosef"},
+}
+# ... which "misses" these people; the code must then find them one at a time
+# via /People/Staff/{staffId}.
+STAFF_LIST_OMITS = {304}
 
 COURSE_LEVELS = {
     "results": [
@@ -64,21 +84,47 @@ COURSE_LEVELS = {
 }
 
 # classId -> which student(s) it belongs to
+def _terms(*meets: int) -> dict:
+    """The termN flags FACTS puts on a class: True for each term it meets."""
+    return {f"term{n}": (n in meets) for n in range(1, 7)}
+
+
+# classId -> which student(s) it belongs to
 CLASSES_BY_STUDENT = {
     10321: {
         "results": [
-            {"classId": 5001, "courseID": 801, "name": "Algebra I - A", "section": "A", "yearId": YEAR_ID},
-            {"classId": 5002, "courseID": 802, "name": "English 9 - A", "section": "A", "yearId": YEAR_ID},
+            # Two teachers: the primary and a secondary.
+            {"classId": 5001, "courseID": 801, "name": "Algebra I - A", "section": "A", "yearId": YEAR_ID,
+             "staffId": 301, "secondaryStaffId": 302, **_terms(1, 2)},
+            {"classId": 5002, "courseID": 802, "name": "English 9 - A", "section": "A", "yearId": YEAR_ID,
+             "staffId": 303, **_terms(1, 2)},
             # A class from LAST year -- the student's grade row for it has the
             # same bare termId as this year's term, and must NOT leak into
             # this year's report.
-            {"classId": 4001, "courseID": 803, "name": "Chumash - Old", "section": "A", "yearId": PRIOR_YEAR_ID},
+            {"classId": 4001, "courseID": 803, "name": "Chumash - Old", "section": "A", "yearId": PRIOR_YEAR_ID,
+             "staffId": 302, **_terms(1, 2)},
+            # No grade and NO attendance events at all -- must still appear
+            # (with 0/0/0). Its teacher is missing from the staff list.
+            {"classId": 5004, "courseID": 805, "name": "Shacharit - A", "section": "A", "yearId": YEAR_ID,
+             "staffId": 304, **_terms(1, 2)},
+            # Attendance turned off for the course -> must not appear.
+            {"classId": 5005, "courseID": 806, "name": "12th Grade Advisor - A", "section": "A", "yearId": YEAR_ID,
+             "staffId": 303, **_terms(1, 2)},
+            # Attendance on, but only meets in term 3, no grade, no events ->
+            # not part of this term's report.
+            {"classId": 5006, "courseID": 807, "name": "Spring Elective - A", "section": "A", "yearId": YEAR_ID,
+             "staffId": 301, **_terms(3)},
         ]
     },
     10455: {
         "results": [
-            {"classId": 5001, "courseID": 801, "name": "Algebra I - A", "section": "A", "yearId": YEAR_ID},
-            {"classId": 5003, "courseID": 803, "name": "Chumash - B", "section": "B", "yearId": YEAR_ID},
+            {"classId": 5001, "courseID": 801, "name": "Algebra I - A", "section": "A", "yearId": YEAR_ID,
+             "staffId": 301, "secondaryStaffId": 302, **_terms(1, 2)},
+            {"classId": 5003, "courseID": 803, "name": "Chumash - B", "section": "B", "yearId": YEAR_ID,
+             "staffId": 302, **_terms(1, 2)},
+            # Attendance off but graded -> left off, and listed as omitted.
+            {"classId": 5007, "courseID": 808, "name": "Study Hall - A", "section": "A", "yearId": YEAR_ID,
+             "staffId": 303, **_terms(1, 2)},
         ]
     },
 }
@@ -130,7 +176,7 @@ GBK_SUMMARY_BY_STUDENT = {
                 "classReference": {"classId": 5001},
                 "studentReference": {"studentId": 10321},
                 "classCategoryReference": {"classCategoryId": -1},
-                "termReference": {"termId": 41},
+                "termReference": {"termId": 1},
                 "average": "90.0",
                 "letterGrade": "A-",
                 "fullAverage": 90.0,
@@ -167,6 +213,15 @@ GBK_SUMMARY_BY_STUDENT = {
                 "average": "",
                 "letterGrade": "INC",
                 "fullAverage": 0,
+            },
+            {
+                "classReference": {"classId": 5007},
+                "studentReference": {"studentId": 10455},
+                "classCategoryReference": {"classCategoryId": -1},
+                "termReference": {"termId": TERM_ID},
+                "average": "99.0",
+                "letterGrade": "A+",
+                "fullAverage": 99.0,
             },
         ]
     },

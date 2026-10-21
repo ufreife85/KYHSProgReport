@@ -1,13 +1,15 @@
-"""Builds one progress-report PDF per student using reportlab. One table:
-Course, Level, Numeric Grade, Tardies, Absences, Cuts.
+"""Builds one progress-report PDF per student using reportlab (landscape).
+One table: Course Name, Course Level, Teacher, Numeric Grade, Tardies,
+Absences, Cuts.
 """
 from __future__ import annotations
 
+import datetime as dt
 import re
 from pathlib import Path
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import (
@@ -23,7 +25,9 @@ from .models import StudentReport
 _styles = getSampleStyleSheet()
 _TITLE = ParagraphStyle("ReportTitle", parent=_styles["Title"], fontSize=16, spaceAfter=2)
 _SUBTITLE = ParagraphStyle("ReportSubtitle", parent=_styles["Normal"], fontSize=11, textColor=colors.HexColor("#444444"))
-_FOOTER = ParagraphStyle("Footer", parent=_styles["Normal"], fontSize=8, textColor=colors.HexColor("#777777"))
+_FOOTER = ParagraphStyle("Footer", parent=_styles["Normal"], fontSize=10, textColor=colors.HexColor("#333333"), leading=13)
+_CELL_LEFT = ParagraphStyle("CellLeft", parent=_styles["Normal"], fontSize=9.5, leading=11.5)
+_CELL_CENTER = ParagraphStyle("CellCenter", parent=_CELL_LEFT, alignment=1)
 
 HEADER_BG = colors.HexColor("#2E4057")
 ROW_ALT_BG = colors.HexColor("#F2F4F7")
@@ -49,18 +53,33 @@ def student_filename(s) -> str:
 
 
 def _report_table(report: StudentReport) -> Table:
-    header = ["Course Name", "Course Level", "Numeric Grade", "Tardies", "Absences", "Cuts"]
+    header = ["Course Name", "Course Level", "Teacher", "Numeric Grade", "Tardies", "Absences", "Cuts"]
     rows = [header]
     for c in report.classes:
         numeric = f"{c.numeric_grade:.1f}" if c.numeric_grade is not None else "—"
-        rows.append([c.course_name, c.course_level or "—", numeric, str(c.tardies), str(c.absences), str(c.cuts)])
+        rows.append([
+            Paragraph(_escape(c.course_name), _CELL_LEFT),
+            Paragraph(_escape(c.course_level or "—"), _CELL_CENTER),
+            Paragraph(_escape(c.teacher or "—"), _CELL_LEFT),
+            numeric, str(c.tardies), str(c.absences), str(c.cuts),
+        ])
     if len(rows) == 1:
-        rows.append(["No classes with grades or attendance recorded for this term.", "", "", "", "", ""])
+        rows.append(["No classes with attendance recorded for this term.", "", "", "", "", "", ""])
 
-    col_widths = [2.6 * inch, 1.2 * inch, 1.1 * inch, 0.75 * inch, 0.85 * inch, 0.6 * inch]
+    # Landscape letter is 11in wide; with 0.7in margins that leaves 9.6in.
+    col_widths = [2.9 * inch, 1.3 * inch, 2.2 * inch, 1.05 * inch, 0.7 * inch, 0.8 * inch, 0.65 * inch]
     table = Table(rows, colWidths=col_widths, repeatRows=1)
     table.setStyle(_table_style(len(rows)))
     return table
+
+
+def _escape(text: str) -> str:
+    """reportlab Paragraphs read a little markup; make names safe."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _format_date(d: dt.date) -> str:
+    return f"{d:%B} {d.day}, {d.year}"
 
 
 def _table_style(num_rows: int) -> TableStyle:
@@ -70,8 +89,8 @@ def _table_style(num_rows: int) -> TableStyle:
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
-            ("ALIGN", (0, 0), (0, -1), "LEFT"),
+            ("ALIGN", (3, 0), (-1, -1), "CENTER"),
+            ("ALIGN", (0, 0), (2, 0), "LEFT"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("GRID", (0, 0), (-1, -1), 0.5, GRID_COLOR),
             ("TOPPADDING", (0, 0), (-1, -1), 5),
@@ -85,10 +104,12 @@ def _table_style(num_rows: int) -> TableStyle:
     return style
 
 
-def build_student_pdf(report: StudentReport, school_name: str, output_path: Path) -> Path:
+def build_student_pdf(
+    report: StudentReport, school_name: str, output_path: Path, cutoff_date: dt.date | None = None
+) -> Path:
     doc = SimpleDocTemplate(
         str(output_path),
-        pagesize=letter,
+        pagesize=landscape(letter),
         topMargin=0.6 * inch,
         bottomMargin=0.6 * inch,
         leftMargin=0.7 * inch,
@@ -124,10 +145,11 @@ def build_student_pdf(report: StudentReport, school_name: str, output_path: Path
     story.append(_report_table(report))
 
     story.append(Spacer(1, 24))
+    cutoff = _format_date(cutoff_date) if cutoff_date else "[cutoff date]"
     story.append(
         Paragraph(
-            "Generated from FACTS SIS data. This is an informational mid-term progress report, "
-            "not an official report card.",
+            "The above document is a progress report. The grades detailed are <b>NOT final</b>, "
+            f"and reflect the student's performance up to {cutoff}.",
             _FOOTER,
         )
     )
