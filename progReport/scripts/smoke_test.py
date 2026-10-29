@@ -78,9 +78,10 @@ def main() -> int:
 
     ari = next(r for r in reports if r.student.student_id == 10321)
     ari_by_course = {c.course_name: c for c in ari.classes}
-    assert set(ari_by_course) == {"Algebra I", "English 9", "Shacharit"}, (
-        "Shacharit (attendance on, no grade, no events) must appear; the Advisor (attendance off), "
-        f"the term-3-only elective and last year's Chumash must not: {set(ari_by_course)}"
+    assert set(ari_by_course) == {"Algebra I", "English 9", "Shacharit", "Chumash Honors"}, (
+        "Shown: classes he is ENROLLED in whose course has attendance on. Not shown: the old regular Chumash he "
+        "moved out of (it has a grade and attendance but he is unenrolled), the Advisor (attendance off), "
+        f"the term-3-only elective, and last year's Chumash: {set(ari_by_course)}"
     )
     shac = ari_by_course["Shacharit"]
     assert (shac.numeric_grade, shac.tardies, shac.absences, shac.cuts) == (None, 0, 0, 0), shac
@@ -99,10 +100,12 @@ def main() -> int:
     assert shira_by_course["Chumash"].numeric_grade is None, "blank average + fullAverage 0 -> should be None, not 0.0"
     assert shira_by_course["Chumash"].cuts == 2
     assert shira_by_course["Chumash"].teacher == "Moshe Rubin"
-    assert set(shira_by_course) == {"Algebra I", "Chumash"}, "Study Hall has attendance off and must be left off"
+    assert set(shira_by_course) == {"Algebra I", "Chumash"}, (
+        "Study Hall has attendance off, and 'English 9 - B' has no enrollment record: both must be left off")
     assert shira.omitted_with_grade == ["Study Hall"], shira.omitted_with_grade
 
     _check_helpers(client, ref)
+    _check_enrollment_rule()
     _check_pdf_layout(output_dir, reports)
 
     _check_batch_behaviour(client, settings, term, as_of)
@@ -112,6 +115,16 @@ def main() -> int:
     print("\nAll smoke-test assertions passed.")
     print(f"Sample PDFs written to: {output_dir}")
     return 0
+
+
+def _check_enrollment_rule():
+    from facts_progress.gradebook import enrolled_in_term
+    ok = {"enrolled": True, "enrolled1": True, "enrolled2": True}
+    assert enrolled_in_term(ok, 1) and enrolled_in_term(ok, 2)
+    assert not enrolled_in_term(None, 1), "no record -> not enrolled"
+    assert not enrolled_in_term({"enrolled": False, "enrolled1": True}, 1), "unenrolled wins over a term flag"
+    assert not enrolled_in_term({"enrolled": True, "enrolled1": False, "enrolled2": True}, 1), "not enrolled in THIS term"
+    assert enrolled_in_term({"enrolled": True}, 5), "a term flag FACTS doesn't send is not held against the class"
 
 
 def _check_helpers(client, ref):

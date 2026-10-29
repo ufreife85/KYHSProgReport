@@ -16,6 +16,8 @@ from .gradebook import (
     attendance_enabled,
     class_course_info,
     classes_in_year,
+    enrolled_in_term,
+    fetch_enrollments,
     fetch_grades_for_student,
     fetch_student_classes,
     load_reference_data,
@@ -64,26 +66,31 @@ def build_student_report(
         if cid in student_classes
     }
 
+    enrollments = fetch_enrollments(client, student.student_id)
+
     # Which classes belong on the report:
-    #   * the course must have attendance turned on in FACTS (advising,
-    #     service hours etc. are excluded), AND
-    #   * the class meets in the report term (its termN flag), OR the student
-    #     already has a grade or counted attendance in it.
-    # The second part is what lets a class with no grade -- Shacharit,
-    # Mincha -- appear even when the student has had no tardies/absences/cuts.
+    #   * the student is ENROLLED in the class (FACTS enrollment record), in the
+    #     report term -- a class they were moved out of (e.g. Grade Level after
+    #     moving up to Honors) stays on their record but must not be listed; AND
+    #   * the course has attendance turned on in FACTS (advising, service hours
+    #     etc. are excluded).
+    # Classes with no grade (Shacharit, Mincha) still appear, with 0/0/0.
     rows = []
     omitted_with_grade: list[str] = []
     for class_id, class_info in student_classes.items():
         course_name, course_level = class_course_info(ref, class_info)
-        has_evidence = class_id in grades_by_class or class_id in attendance_by_class
+
+        enrollment = enrollments.get(class_id)
+        if enrollment is None:
+            logger.warning("Student %s: class '%s' has no enrollment record in FACTS -- left off the report.",
+                           student.student_id, course_name)
+            continue
+        if not enrolled_in_term(enrollment, term.term_id):
+            continue
 
         if not attendance_enabled(ref, class_info):
             if class_id in grades_by_class:
                 omitted_with_grade.append(course_name)
-            continue
-
-        meets_term = bool((class_info.get("terms") or {}).get(term.term_id))
-        if not (meets_term or has_evidence):
             continue
 
         tallies = attendance_by_class.get(class_id, {"tardies": 0, "absences": 0, "cuts": 0})

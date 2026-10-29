@@ -122,6 +122,36 @@ def fetch_student_classes(client: FactsClient, student_id: int) -> dict[int, dic
     return classes
 
 
+# One enrollment record per student per class (GET /Academics/Enrollments). It is
+# what the FACTS "Hide Unenrolled" screen shows: `enrolled` plus `enrolled1`..
+# `enrolled6`, one flag per term. The class list (/Classes/v2/Students) says
+# nothing about enrollment, so a student who moved from Grade Level to
+# Accelerated to Honors still has all three classes there.
+ENROLLMENT_PAGE_SIZE = 1000
+
+
+def fetch_enrollments(client: FactsClient, student_id: int) -> dict[int, dict]:
+    """Returns classId -> that student's enrollment record."""
+    out: dict[int, dict] = {}
+    for row in client.get_paged("/Academics/Enrollments", filters=f"studentId=={student_id}",
+                                page_size=ENROLLMENT_PAGE_SIZE):
+        if row.get("studentId") != student_id:      # never trust the server filter alone
+            continue
+        class_id = row.get("classId")
+        if class_id is not None:
+            out[class_id] = row
+    return out
+
+
+def enrolled_in_term(enrollment: dict | None, term_id: int) -> bool:
+    """True when FACTS shows the student enrolled in the class AND in the report
+    term (flag enrolled<term_id>). A missing record means not enrolled; a term
+    flag FACTS doesn't send is not held against the class."""
+    if not enrollment or enrollment.get("enrolled") is not True:
+        return False
+    return enrollment.get(f"enrolled{term_id}") is not False
+
+
 def classes_in_year(student_classes: dict[int, dict], year_id: int) -> dict[int, dict]:
     """Keeps only the classes that belong to the given school year.
 

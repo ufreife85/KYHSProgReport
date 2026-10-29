@@ -89,6 +89,13 @@ def _format_date(d: dt.date) -> str:
     return f"{d:%B} {d.day}, {d.year}"
 
 
+def _us_date(value: str | None) -> str:
+    """'2026-08-26T00:00:00Z' -> '08/26/2026'. Reads the year-month-day part as
+    written (no time-zone shifting). Anything unrecognized is shown unchanged."""
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", value or "")
+    return f"{m.group(2)}/{m.group(3)}/{m.group(1)}" if m else (value or "?")
+
+
 def _draw_logo(canvas, doc) -> None:
     """Page callback: puts the logo in the top right corner. Does not move any
     other content. Silently skipped if the logo file is missing."""
@@ -138,18 +145,18 @@ def build_student_pdf(
         bottomMargin=0.6 * inch,
         leftMargin=0.7 * inch,
         rightMargin=0.7 * inch,
-        title=f"Progress Report - {report.student.first_name} {report.student.last_name}",
+        title=f"Mid-Semester Progress Report - {report.student.first_name} {report.student.last_name}",
     )
 
     story = []
-    story.append(Paragraph(school_name, _TITLE))
-    story.append(Paragraph(f"Mid-Term Progress Report &mdash; {report.term.name}", _SUBTITLE))
+    story.append(Paragraph("Mid-Semester Progress Report", _TITLE))
+    story.append(Paragraph(_escape(report.term.name), _SUBTITLE))
     story.append(Spacer(1, 14))
 
     s = report.student
     meta_rows = [
         ["Student:", f"{s.first_name} {s.last_name}", "Grade Level:", s.grade_level or "—"],
-        ["Term Dates:", f"{report.term.first_day or '?'} – {report.term.last_day or '?'}", "", ""],
+        ["Term Dates:", f"{_us_date(report.term.first_day)} – {_us_date(report.term.last_day)}", "", ""],
     ]
     meta_table = Table(meta_rows, colWidths=[1.0 * inch, 2.6 * inch, 1.1 * inch, 2.1 * inch])
     meta_table.setStyle(
@@ -172,8 +179,9 @@ def build_student_pdf(
     cutoff = _format_date(cutoff_date) if cutoff_date else "[cutoff date]"
     story.append(
         Paragraph(
-            "The above document is a progress report. The grades detailed are <b>NOT final</b>, "
-            f"and reflect the student's performance up to {cutoff}.",
+            "The above document is a progress report. The official Semester 1 Report Card will be released in January. "
+            f"""This progress report reflects the student's performance up to {cutoff}. 
+            Please note that points have not yet been deducted for excessive tardies, absences, and cuts.""",
             _FOOTER,
         )
     )

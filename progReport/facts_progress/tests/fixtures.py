@@ -59,6 +59,8 @@ COURSES = {
         {"courseID": 806, "title": "12th Grade Advisor", "abbreviation": "ADV", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": False},
         # Attendance on, but only meets in term 3 (not the report term).
         {"courseID": 807, "title": "Spring Elective", "abbreviation": "SPRE", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": True},
+        # The level Ari was moved up to (his old "Chumash", course 803, stays on his record).
+        {"courseID": 809, "title": "Chumash Honors", "abbreviation": "CHUH", "schoolCode": SCHOOL_CODE, "levelID": 1, "attendance": True},
         # Attendance OFF but the student has a grade in it -- must be left off
         # AND reported in omitted_with_grade.
         {"courseID": 808, "title": "Study Hall", "abbreviation": "STUD", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": False},
@@ -110,10 +112,17 @@ CLASSES_BY_STUDENT = {
             # Attendance turned off for the course -> must not appear.
             {"classId": 5005, "courseID": 806, "name": "12th Grade Advisor - A", "section": "A", "yearId": YEAR_ID,
              "staffId": 303, **_terms(1, 2)},
-            # Attendance on, but only meets in term 3, no grade, no events ->
-            # not part of this term's report.
+            # Enrolled, but only in term 3 (see ENROLLMENTS_BY_STUDENT): not part of
+            # this term's report.
             {"classId": 5006, "courseID": 807, "name": "Spring Elective - A", "section": "A", "yearId": YEAR_ID,
              "staffId": 301, **_terms(3)},
+            # Ari moved from regular Chumash UP to Honors. The old class still
+            # exists on his record WITH a grade and attendance, but he is no
+            # longer enrolled in it -- it must not appear.
+            {"classId": 5008, "courseID": 803, "name": "Chumash - GL", "section": "A", "yearId": YEAR_ID,
+             "staffId": 302, **_terms(1, 2)},
+            {"classId": 5009, "courseID": 809, "name": "Chumash Honors - A", "section": "A", "yearId": YEAR_ID,
+             "staffId": 302, **_terms(1, 2)},
         ]
     },
     10455: {
@@ -122,6 +131,9 @@ CLASSES_BY_STUDENT = {
              "staffId": 301, "secondaryStaffId": 302, **_terms(1, 2)},
             {"classId": 5003, "courseID": 803, "name": "Chumash - B", "section": "B", "yearId": YEAR_ID,
              "staffId": 302, **_terms(1, 2)},
+            # No enrollment record in FACTS at all -> left off (and warned about).
+            {"classId": 5011, "courseID": 802, "name": "English 9 - B", "section": "B", "yearId": YEAR_ID,
+             "staffId": 303, **_terms(1, 2)},
             # Attendance off but graded -> left off, and listed as omitted.
             {"classId": 5007, "courseID": 808, "name": "Study Hall - A", "section": "A", "yearId": YEAR_ID,
              "staffId": 303, **_terms(1, 2)},
@@ -180,6 +192,16 @@ GBK_SUMMARY_BY_STUDENT = {
                 "average": "90.0",
                 "letterGrade": "A-",
                 "fullAverage": 90.0,
+            },
+            # Ari's OLD Chumash class: graded, but he has since moved out of it.
+            {
+                "classReference": {"classId": 5008},
+                "studentReference": {"studentId": 10321},
+                "classCategoryReference": {"classCategoryId": -1},
+                "termReference": {"termId": TERM_ID},
+                "average": "80.0",
+                "letterGrade": "B-",
+                "fullAverage": 80.0,
             },
             # Last year's class, same bare termId as this year's term. A
             # term-id-only match would wrongly include it (see CLASSES_BY_STUDENT).
@@ -245,6 +267,7 @@ ATTENDANCE_BY_STUDENT = {
             {"attendanceId": 3, "studentReference": {"studentId": 10321}, "classReference": {"classId": 5002}, "attendanceCode": "A", "attendanceDate": "2026-09-12"},
             {"attendanceId": 4, "studentReference": {"studentId": 10321}, "classReference": {"classId": 5002}, "attendanceCode": "C", "attendanceDate": "2026-09-15"},
             {"attendanceId": 5, "studentReference": {"studentId": 10321}, "classReference": {"classId": 5001}, "attendanceCode": "P", "attendanceDate": "2026-09-20"},
+            {"attendanceId": 10, "studentReference": {"studentId": 10321}, "classReference": {"classId": 5008}, "attendanceCode": "T", "attendanceDate": "2026-09-11"},
             # Outside the as-of window used by the smoke test -- should not be counted.
             {"attendanceId": 6, "studentReference": {"studentId": 10321}, "classReference": {"classId": 5001}, "attendanceCode": "T", "attendanceDate": "2026-12-01"},
         ]
@@ -259,3 +282,35 @@ ATTENDANCE_BY_STUDENT = {
 }
 
 AS_OF_DATE = "2026-09-22"
+
+
+def _enr(student_id: int, class_id: int, enrolled: bool, *terms: int) -> dict:
+    """One FACTS enrollment record: `enrolled` plus enrolled1..enrolled6 (True for each term listed)."""
+    row = {"studentId": student_id, "classId": class_id, "enrolled": enrolled, "gradeLevel": "09"}
+    row.update({f"enrolled{n}": (n in terms) for n in range(1, 7)})
+    return row
+
+
+# /Academics/Enrollments, per student. Mirrors the FACTS "Hide Unenrolled" screen.
+ENROLLMENTS_BY_STUDENT = {
+    10321: {
+        "results": [
+            _enr(10321, 5001, True, 1, 2),
+            _enr(10321, 5002, True, 1, 2),
+            _enr(10321, 4001, True, 1, 2),          # last year's class (not this year's report anyway)
+            _enr(10321, 5004, True, 1, 2),          # Shacharit: enrolled, never graded
+            _enr(10321, 5005, True, 1, 2),          # Advisor: enrolled, but attendance is off
+            _enr(10321, 5006, True, 3),             # enrolled only in term 3
+            _enr(10321, 5008, False),               # moved OUT of regular Chumash
+            _enr(10321, 5009, True, 1, 2),          # moved INTO Chumash Honors
+        ]
+    },
+    10455: {
+        "results": [
+            _enr(10455, 5001, True, 1, 2),
+            _enr(10455, 5003, True, 1, 2),
+            _enr(10455, 5007, True, 1, 2),          # Study Hall: enrolled, attendance off, graded
+            # (no record at all for class 5011)
+        ]
+    },
+}

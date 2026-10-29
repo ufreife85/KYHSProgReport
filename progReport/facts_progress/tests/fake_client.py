@@ -72,6 +72,11 @@ class FakeFactsClient:
             yield from fixtures.GBK_SUMMARY_BY_STUDENT.get(student_id, {}).get("results", [])
             return
 
+        if path == "/Academics/Enrollments":
+            student_id = _extract_student_id_filter(filters)
+            yield from fixtures.ENROLLMENTS_BY_STUDENT.get(student_id, {}).get("results", [])
+            return
+
         if path == "/People/StudentAttendance":
             student_id = _extract_student_id_filter(filters)
             yield from fixtures.ATTENDANCE_BY_STUDENT.get(student_id, {}).get("results", [])
