@@ -81,14 +81,14 @@ def main() -> int:
     assert set(ari_by_course) == {"Algebra I", "English 9", "Shacharit", "Chumash Honors"}, (
         "Shown: classes he is ENROLLED in whose course has attendance on. Not shown: the old regular Chumash he "
         "moved out of (it has a grade and attendance but he is unenrolled), the Advisor (attendance off), "
-        f"the term-3-only elective, and last year's Chumash: {set(ari_by_course)}"
+        f"the term-3-only elective, last year's Chumash, Robotics (an Activity, though enrolled and graded) and Masmidot (leave-off title): {set(ari_by_course)}"
     )
     shac = ari_by_course["Shacharit"]
     assert (shac.numeric_grade, shac.tardies, shac.absences, shac.cuts) == (None, 0, 0, 0), shac
     assert shac.teacher == "Yosef Weiss", "a teacher missing from the staff list must be found one-at-a-time"
     assert ari_by_course["Algebra I"].teacher == "Sara Goldberg / Moshe Rubin", "primary / secondary teacher"
     assert ari_by_course["English 9"].teacher == "Dina Katz"
-    assert ari.omitted_with_grade == [], ari.omitted_with_grade
+    assert ari.omitted_with_grade == [], "an Activity is excluded silently, not reported as 'attendance off'"
     assert ari_by_course["Algebra I"].numeric_grade == 88.4, "should use MP2 grade, not full-year row"
     assert ari_by_course["Algebra I"].course_level == "Honors"
     assert ari_by_course["Algebra I"].tardies == 2, "the Dec 1 tardy is outside the as-of window and must not count"
@@ -101,11 +101,13 @@ def main() -> int:
     assert shira_by_course["Chumash"].cuts == 2
     assert shira_by_course["Chumash"].teacher == "Moshe Rubin"
     assert set(shira_by_course) == {"Algebra I", "Chumash"}, (
-        "Study Hall has attendance off, and 'English 9 - B' has no enrollment record: both must be left off")
+        "Left off: Study Hall (attendance off), 'English 9 - B' (no enrollment record) and Student & Learning "
+        f"Skills (leave-off title, which FACTS pads with a trailing space): {set(shira_by_course)}")
     assert shira.omitted_with_grade == ["Study Hall"], shira.omitted_with_grade
 
     _check_helpers(client, ref)
     _check_enrollment_rule()
+    _check_prayer_check(ari, shira)
     _check_pdf_layout(output_dir, reports)
 
     _check_batch_behaviour(client, settings, term, as_of)
@@ -115,6 +117,27 @@ def main() -> int:
     print("\nAll smoke-test assertions passed.")
     print(f"Sample PDFs written to: {output_dir}")
     return 0
+
+
+def _check_prayer_check(ari, shira):
+    from dataclasses import replace
+    from facts_progress.aggregator import prayer_counts, prayer_issue
+    from facts_progress.models import ClassProgress
+
+    assert prayer_counts(ari) == (1, 0), prayer_counts(ari)
+    assert prayer_issue(ari) == "no Mincha", prayer_issue(ari)
+    assert prayer_issue(shira) == "no Shacharit, no Mincha", prayer_issue(shira)
+
+    def row(name):
+        return ClassProgress(class_id=1, course_name=name, course_level="", teacher="", numeric_grade=None)
+
+    good = replace(ari, classes=[row("Shacharit Boys Ashkenaz"), row("Mincha Boys Ashkenaz")])
+    assert prayer_issue(good) is None
+    twice = replace(ari, classes=[row("Shacharit Boys Ashkenaz"), row("Shacharit Boys Chabad "), row("Mincha Girls Sefardic")])
+    assert prayer_issue(twice) == "2 Shacharit", prayer_issue(twice)
+    both = replace(ari, classes=[row("Shacharit Girls Chabad"), row("Mincha Girls Chabad"), row("MINCHA Boys Ashkenaz")])
+    assert prayer_issue(both) == "2 Mincha", prayer_issue(both)
+    assert prayer_issue(replace(ari, classes=[row("Chumash"), row("Machshava")])) == "no Shacharit, no Mincha", "title must START with the word"
 
 
 def _check_enrollment_rule():
@@ -133,6 +156,9 @@ def _check_helpers(client, ref):
 
     assert attendance_enabled(ref, {"courseID": 999}) is True, "unknown course -> keep, never silently drop"
     assert attendance_enabled(ref, {"courseID": 806}) is False
+    from facts_progress.gradebook import is_activity
+    assert is_activity(ref, {"courseID": 810}) is True and is_activity(ref, {"courseID": 801}) is False
+    assert is_activity(ref, {"courseID": 999}) is False, "unknown course is not treated as an activity"
     assert teacher_names(client, ref, {"staffId": 399}) == "", "an unknown teacher gives a blank, not a crash"
     assert teacher_names(client, ref, {"staffId": 301, "secondaryStaffId": 301}) == "Sara Goldberg", "no duplicates"
     assert teacher_names(client, ref, {}) == ""

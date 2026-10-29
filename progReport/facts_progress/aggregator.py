@@ -18,6 +18,8 @@ from .gradebook import (
     classes_in_year,
     enrolled_in_term,
     fetch_enrollments,
+    is_activity,
+    is_excluded_title,
     fetch_grades_for_student,
     fetch_student_classes,
     load_reference_data,
@@ -72,6 +74,8 @@ def build_student_report(
     #   * the student is ENROLLED in the class (FACTS enrollment record), in the
     #     report term -- a class they were moved out of (e.g. Grade Level after
     #     moving up to Honors) stays on their record but must not be listed; AND
+    #   * the course is not marked as an Activity in FACTS (Robotics, sports
+    #     teams...) and is not on the leave-off title list, AND
     #   * the course has attendance turned on in FACTS (advising, service hours
     #     etc. are excluded).
     # Classes with no grade (Shacharit, Mincha) still appear, with 0/0/0.
@@ -87,6 +91,12 @@ def build_student_report(
             continue
         if not enrolled_in_term(enrollment, term.term_id):
             continue
+
+        if is_activity(ref, class_info):
+            continue          # Robotics, sports teams etc.: marked "Activity" in FACTS
+
+        if is_excluded_title(ref, class_info):
+            continue          # on the school's leave-off list (see EXCLUDED_COURSE_TITLES)
 
         if not attendance_enabled(ref, class_info):
             if class_id in grades_by_class:
@@ -109,6 +119,26 @@ def build_student_report(
 
     rows.sort(key=lambda r: r.course_name.lower())
     return StudentReport(student=student, term=term, classes=rows, omitted_with_grade=omitted_with_grade)
+
+
+def prayer_counts(report: StudentReport) -> tuple[int, int]:
+    """(number of Shacharit rows, number of Mincha rows) on a report, by course title
+    (every variant -- Boys/Girls, Ashkenaz/Chabad/Sefardi -- starts with the word)."""
+    names = [c.course_name.strip().lower() for c in report.classes]
+    return (sum(n.startswith("shacharit") for n in names), sum(n.startswith("mincha") for n in names))
+
+
+def prayer_issue(report: StudentReport) -> str | None:
+    """None when the report has exactly one Shacharit and one Mincha; otherwise a short
+    description of what is wrong (missing or more than one)."""
+    shacharit, mincha = prayer_counts(report)
+    problems = []
+    for label, n in (("Shacharit", shacharit), ("Mincha", mincha)):
+        if n == 0:
+            problems.append(f"no {label}")
+        elif n > 1:
+            problems.append(f"{n} {label}")
+    return ", ".join(problems) or None
 
 
 def iter_reports(

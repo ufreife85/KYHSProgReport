@@ -38,11 +38,14 @@ def load_reference_data(client: FactsClient, school_code: str) -> ReferenceData:
         if (row.get("schoolCode") or "").strip().lower() != school_code.strip().lower():
             continue
         ref.courses_by_id[row["courseID"]] = {
-            "title": row.get("title") or row.get("abbreviation") or f"Course {row['courseID']}",
+            "title": (row.get("title") or row.get("abbreviation") or f"Course {row['courseID']}").strip(),
             "levelID": row.get("levelID"),
             # Whether FACTS has attendance turned on for this course. Advising,
             # service hours, etc. have it off and don't belong on the report.
             "attendance": row.get("attendance"),
+            # FACTS "Activity" courses (Robotics, sports teams...) are not classes
+            # for a progress report, even when they take attendance.
+            "activity": row.get("activity"),
         }
 
     for row in client.get_paged("/Gradebooks/CourseLevel"):
@@ -95,6 +98,26 @@ def attendance_enabled(ref: ReferenceData, class_info: dict) -> bool:
     attendance turned off. If the course or its flag is unknown, the class
     is kept -- better an extra row than a silently missing class."""
     return ref.courses_by_id.get(class_info.get("courseID"), {}).get("attendance") is not False
+
+
+def is_activity(ref: ReferenceData, class_info: dict) -> bool:
+    """True only when FACTS explicitly marks the class's course as an Activity."""
+    return ref.courses_by_id.get(class_info.get("courseID"), {}).get("activity") is True
+
+
+# Courses left OFF every report by title, even though attendance is on. Matched
+# ignoring capitals and extra spaces. Add or remove titles here (one per line).
+EXCLUDED_COURSE_TITLES = {
+    "student & learning skills",
+    "student and learning skills",
+    "masmidot",
+}
+
+
+def is_excluded_title(ref: ReferenceData, class_info: dict) -> bool:
+    """True when the class's course title is on the EXCLUDED_COURSE_TITLES list."""
+    title = ref.courses_by_id.get(class_info.get("courseID"), {}).get("title") or ""
+    return " ".join(title.lower().split()) in EXCLUDED_COURSE_TITLES
 
 
 def fetch_student_classes(client: FactsClient, student_id: int) -> dict[int, dict]:

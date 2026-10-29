@@ -61,6 +61,8 @@ COURSES = {
         {"courseID": 807, "title": "Spring Elective", "abbreviation": "SPRE", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": True},
         # The level Ari was moved up to (his old "Chumash", course 803, stays on his record).
         {"courseID": 809, "title": "Chumash Honors", "abbreviation": "CHUH", "schoolCode": SCHOOL_CODE, "levelID": 1, "attendance": True},
+        # An Activity (Robotics, sports): attendance is ON, but it is marked Activity -> never listed.
+        {"courseID": 810, "title": "Robotics Team", "abbreviation": "ROBO", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": True, "activity": True},
         # Attendance OFF but the student has a grade in it -- must be left off
         # AND reported in omitted_with_grade.
         {"courseID": 808, "title": "Study Hall", "abbreviation": "STUD", "schoolCode": SCHOOL_CODE, "levelID": 2, "attendance": False},
@@ -123,6 +125,9 @@ CLASSES_BY_STUDENT = {
              "staffId": 302, **_terms(1, 2)},
             {"classId": 5009, "courseID": 809, "name": "Chumash Honors - A", "section": "A", "yearId": YEAR_ID,
              "staffId": 302, **_terms(1, 2)},
+            # Enrolled, attendance on, graded -- but an Activity: must not appear.
+            {"classId": 5012, "courseID": 810, "name": "Robotics - A", "section": "A", "yearId": YEAR_ID,
+             "staffId": 303, **_terms(1, 2)},
         ]
     },
     10455: {
@@ -192,6 +197,15 @@ GBK_SUMMARY_BY_STUDENT = {
                 "average": "90.0",
                 "letterGrade": "A-",
                 "fullAverage": 90.0,
+            },
+            {
+                "classReference": {"classId": 5012},
+                "studentReference": {"studentId": 10321},
+                "classCategoryReference": {"classCategoryId": -1},
+                "termReference": {"termId": TERM_ID},
+                "average": "100.0",
+                "letterGrade": "A",
+                "fullAverage": 100.0,
             },
             # Ari's OLD Chumash class: graded, but he has since moved out of it.
             {
@@ -303,6 +317,7 @@ ENROLLMENTS_BY_STUDENT = {
             _enr(10321, 5006, True, 3),             # enrolled only in term 3
             _enr(10321, 5008, False),               # moved OUT of regular Chumash
             _enr(10321, 5009, True, 1, 2),          # moved INTO Chumash Honors
+            _enr(10321, 5012, True, 1, 2),          # Robotics: enrolled, but an Activity
         ]
     },
     10455: {

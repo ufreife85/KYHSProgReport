@@ -27,7 +27,7 @@ import logging
 import sys
 from pathlib import Path
 
-from facts_progress.aggregator import iter_reports
+from facts_progress.aggregator import iter_reports, prayer_issue
 from facts_progress.attendance import fetch_attendance_codes
 from facts_progress.config import ConfigError, Settings
 from facts_progress.facts_client import FactsApiError, FactsClient
@@ -111,6 +111,7 @@ def main(argv=None) -> int:
         written = skipped = 0
         omitted: Counter = Counter()
         failed: list[int] = []
+        prayer_problems: dict[int, str] = {}     # student id -> what is wrong with Shacharit / Mincha
         row_counts: dict[str, dict[int, list[int]]] = {}   # grade -> {rows on report -> [student ids]}
         for student, report, error in iter_reports(
             client,
@@ -129,6 +130,9 @@ def main(argv=None) -> int:
                 path = output_dir / student_filename(student)
                 build_student_pdf(report, args.school_name, path, cutoff)
                 omitted.update(report.omitted_with_grade)
+                issue = prayer_issue(report)
+                if issue:
+                    prayer_problems[student.student_id] = issue
                 row_counts.setdefault(student.grade_level, {}).setdefault(len(report.classes), []).append(student.student_id)
                 written += 1
                 logger.info("Wrote %s", path.name)
@@ -143,6 +147,7 @@ def main(argv=None) -> int:
     logger.info("Done. %d PDF(s) written, %d skipped (already existed), %d failed. %d FACTS requests used. Folder: %s",
                 written, skipped, len(failed), client.request_count, output_dir)
     _log_row_count_summary(row_counts)
+    _log_prayer_check(written, prayer_problems)
     if omitted:
         logger.info(
             "Classes left OFF reports because their course has attendance turned off in FACTS, "
@@ -170,6 +175,18 @@ def _log_row_count_summary(row_counts: dict[str, dict[int, list[int]]]) -> None:
             if n != usual:
                 logger.info("  Grade %s, %d classes (most common is %d): student ids %s",
                             grade, n, usual, ", ".join(str(i) for i in by_count[n]))
+
+
+def _log_prayer_check(written: int, problems: dict[int, str]) -> None:
+    """Every student should have exactly one Shacharit and one Mincha. Lists the ids
+    of anyone who doesn't (missing, or more than one) so they can be fixed in FACTS."""
+    if not problems:
+        logger.info("Shacharit/Mincha check: all %d report(s) have exactly one of each.", written)
+        return
+    logger.warning("Shacharit/Mincha check: %d of %d report(s) do NOT have exactly one Shacharit and one Mincha -- "
+                   "these need attention:", len(problems), written)
+    for sid, issue in sorted(problems.items()):
+        logger.warning("  student id %s: %s", sid, issue)
 
 
 def _resolve_term(client: FactsClient, settings: Settings, args: argparse.Namespace):
