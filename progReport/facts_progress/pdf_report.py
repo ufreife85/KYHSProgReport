@@ -1,6 +1,6 @@
 """Builds one progress-report PDF per student using reportlab (landscape).
 One table: Course Name, Course Level, Teacher, Numeric Grade, Tardies,
-Absences, Cuts.
+Absences, Cuts. The school logo (assets/logo.png) sits in the top right corner.
 """
 from __future__ import annotations
 
@@ -28,6 +28,13 @@ _SUBTITLE = ParagraphStyle("ReportSubtitle", parent=_styles["Normal"], fontSize=
 _FOOTER = ParagraphStyle("Footer", parent=_styles["Normal"], fontSize=10, textColor=colors.HexColor("#333333"), leading=13)
 _CELL_LEFT = ParagraphStyle("CellLeft", parent=_styles["Normal"], fontSize=9.5, leading=11.5)
 _CELL_CENTER = ParagraphStyle("CellCenter", parent=_CELL_LEFT, alignment=1)
+
+# School logo, drawn in the top right corner of the page. If the file is not
+# there the report is still built, just without a logo.
+LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
+LOGO_SIZE = 1.0 * inch          # width and height (the logo is square)
+LOGO_TOP_GAP = 0.4 * inch       # distance from the top edge of the page to the logo
+LOGO_RIGHT_GAP = 0.7 * inch     # distance from the right edge (matches the page margin)
 
 HEADER_BG = colors.HexColor("#2E4057")
 ROW_ALT_BG = colors.HexColor("#F2F4F7")
@@ -80,6 +87,23 @@ def _escape(text: str) -> str:
 
 def _format_date(d: dt.date) -> str:
     return f"{d:%B} {d.day}, {d.year}"
+
+
+def _draw_logo(canvas, doc) -> None:
+    """Page callback: puts the logo in the top right corner. Does not move any
+    other content. Silently skipped if the logo file is missing."""
+    if not LOGO_PATH.exists():
+        return
+    page_w, page_h = doc.pagesize
+    canvas.drawImage(
+        str(LOGO_PATH),
+        page_w - LOGO_RIGHT_GAP - LOGO_SIZE,
+        page_h - LOGO_TOP_GAP - LOGO_SIZE,
+        width=LOGO_SIZE,
+        height=LOGO_SIZE,
+        mask="auto",              # keeps the logo's transparent background
+        preserveAspectRatio=True,
+    )
 
 
 def _table_style(num_rows: int) -> TableStyle:
@@ -148,12 +172,11 @@ def build_student_pdf(
     cutoff = _format_date(cutoff_date) if cutoff_date else "[cutoff date]"
     story.append(
         Paragraph(
-            "The above document is a progress report. The official Semester 1 Report Card will be released in January."
-            f"""This progress report reflects the student's performance up to {cutoff}. 
-            Please note that points have not yet been deducted for excessive tardies, absences, and cuts.  """,
+            "The above document is a progress report. The grades detailed are <b>NOT final</b>, "
+            f"and reflect the student's performance up to {cutoff}.",
             _FOOTER,
         )
     )
 
-    doc.build(story)
+    doc.build(story, onFirstPage=_draw_logo, onLaterPages=_draw_logo)
     return output_path
