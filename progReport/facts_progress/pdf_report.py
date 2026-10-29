@@ -148,8 +148,9 @@ def build_student_pdf(
     cutoff = _format_date(cutoff_date) if cutoff_date else "[cutoff date]"
     story.append(
         Paragraph(
-            "The above document is a progress report. The grades detailed are <b>NOT final</b>, "
-            f"and reflect the student's performance up to {cutoff}.",
+            "The above document is a progress report. The official Semester 1 Report Card will be released in January."
+            f"""This progress report reflects the student's performance up to {cutoff}. 
+            Please note that points have not yet been deducted for excessive tardies, absences, and cuts.  """,
             _FOOTER,
         )
     )
